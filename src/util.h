@@ -1,8 +1,12 @@
 #ifndef UTIL_H
 #define UTIL_H
 
-void _Noreturn error(char const* msg, ...) __attribute__((format(printf, 1, 2)));
+#include <stdarg.h>
 
-#define panic() error("INTERNAL %s:%d %s\n", __FILE__, __LINE__, __func__)
+void _Noreturn __attribute__((format(printf, 1, 2))) errorf(char const* fmt, ...);
+void vdebugf(char const* fmt, va_list ap);
+void __attribute__((format(printf, 1, 2))) debugf(char const* fmt, ...);
+
+#define panic() errorf("INTERNAL %s:%d %s\n", __FILE__, __LINE__, __func__)
 
 #endif // UTIL_H

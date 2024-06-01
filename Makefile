@@ -17,7 +17,7 @@ INC_FLAGS := -I$(SRC_DIR)
 
 CCFLAGS := -Wall -Wpedantic -Werror $(INC_FLAGS) -g -MMD -MP
 LDFLAGS :=
-LIBFLAGS :=
+LIBFLAGS := -lm
 
 .PHONY: all test test_mem x86-64 clean
 
