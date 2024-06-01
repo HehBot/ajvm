@@ -51,6 +51,8 @@ typedef struct {
     } attrs;
 } Field_t;
 
+typedef Field_t Method_t;
+
 typedef struct {
     struct {
         size_t size;
@@ -71,7 +73,7 @@ typedef struct {
     } fields;
     struct {
         size_t size;
-        Field_t* list;
+        Method_t* list;
     } methods;
     struct {
         size_t size;

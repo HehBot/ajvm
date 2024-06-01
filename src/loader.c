@@ -211,7 +211,7 @@ Class_t load_class(char const* classfile)
     c.fields.list = load_fields(cf, c.fields.size, c.constant_pool.list);
 
     c.methods.size = read_big_endian_u2(cf);
-    c.methods.list = load_fields(cf, c.methods.size, c.constant_pool.list);
+    c.methods.list = (Method_t*)load_fields(cf, c.methods.size, c.constant_pool.list);
 
     c.attrs.size = read_big_endian_u2(cf);
     c.attrs.list = load_attrs(cf, c.attrs.size, c.constant_pool.list);
