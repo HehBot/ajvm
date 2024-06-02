@@ -53,13 +53,14 @@ typedef struct {
 
 typedef Field_t Method_t;
 
-typedef struct {
+typedef struct _Class Class_t;
+typedef struct _Class {
     struct {
         size_t size;
         Const_t* list;
     } constant_pool;
     char const* name;
-    char const* super;
+    Class_t* super;
 
     uint16_t flags;
 

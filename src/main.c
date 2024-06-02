@@ -539,6 +539,8 @@ Value_t exec(Frame_t* f)
         case DRETURN:
         case ARETURN:
             return stack[sp--];
+        default:
+            errorf("Unrecognised opcode 0x%x", op);
         }
     }
 }
@@ -548,12 +550,12 @@ int main(int argc, char** argv)
     if (argc != 2)
         errorf("Usage: %s <Main class>\n", argv[0]);
 
-    Class_t c = load_class(argv[1]);
+    Class_t* c = load_class(argv[1]);
 
     Method_t* main_method = NULL;
-    for (size_t i = 0; i < c.methods.size; ++i) {
-        if (strcmp(c.methods.list[i].name, "main") == 0) {
-            main_method = &c.methods.list[i];
+    for (size_t i = 0; i < c->methods.size; ++i) {
+        if (strcmp(c->methods.list[i].name, "main") == 0) {
+            main_method = &c->methods.list[i];
             break;
         }
     }
@@ -561,10 +563,8 @@ int main(int argc, char** argv)
         errorf("unable to find main method in class %s", argv[1]);
 
     Value_t* locals = malloc(sizeof(Value_t) * main_method->attrs.list[0].attr_code.max_locals);
-    locals[0].i = 2;
-    locals[1].i = 3;
     Frame_t f = {
-        &c,
+        c,
         0,
         main_method->attrs.list[0].attr_code.code,
         locals,

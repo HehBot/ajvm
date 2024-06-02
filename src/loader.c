@@ -15,7 +15,8 @@ static uint32_t u4_from_big_endian(uint32_t u)
 static void* bytes(FILE* f, size_t sz, int is_str)
 {
     void* buf = malloc(sz + (is_str ? 1 : 0));
-    fread(buf, 1, sz, f);
+    if (fread(buf, 1, sz, f) != sz)
+        errorf("unexpected eof");
     if (is_str)
         ((uint8_t*)buf)[sz] = '\0';
     return buf;
@@ -23,19 +24,22 @@ static void* bytes(FILE* f, size_t sz, int is_str)
 static uint32_t read_big_endian_u4(FILE* f)
 {
     uint32_t a;
-    fread(&a, sizeof(a), 1, f);
+    if (fread(&a, sizeof(a), 1, f) != 1)
+        errorf("unexpected eof");
     return u4_from_big_endian(a);
 }
 static uint16_t read_big_endian_u2(FILE* f)
 {
     uint16_t a;
-    fread(&a, sizeof(a), 1, f);
+    if (fread(&a, sizeof(a), 1, f) != 1)
+        errorf("unexpected eof");
     return u2_from_big_endian(a);
 }
 static uint8_t read_big_endian_u1(FILE* f)
 {
     uint8_t a;
-    fread(&a, sizeof(a), 1, f);
+    if (fread(&a, sizeof(a), 1, f) != 1)
+        errorf("unexpected eof");
     return a;
 }
 
@@ -212,7 +216,7 @@ static void print_field(Field_t* f, size_t indent)
 }
 static void print_class(Class_t const* c, size_t indent)
 {
-    indentdebugf(indent, "Super: %s\n", c->super);
+    indentdebugf(indent, "Super: %s\n", c->super->name);
 
     if (c->interfaces.size > 0) {
         indentdebugf(indent, "Implements interfaces:\n");
@@ -233,44 +237,78 @@ static void print_class(Class_t const* c, size_t indent)
         print_attr(&c->attrs.list[i], indent + 1);
 }
 
-Class_t load_class(char const* classname)
+static void init_java_lang_Object(Class_t* c)
 {
+    Class_t java_lang_Object = {
+        { 0, NULL },
+        "java/lang/Object",
+        NULL,
+        0,
+        { 0, NULL },
+        { 0, NULL },
+        { 0, NULL },
+        { 0, NULL },
+    };
+    *c = java_lang_Object;
+}
+
+Class_t* load_class(char const* classname)
+{
+    static struct {
+        size_t nr, cap;
+        Class_t* list;
+    } loaded_classes = { 0, 0, NULL };
+
+    if (loaded_classes.cap == 0) {
+        loaded_classes.cap = 2;
+        loaded_classes.list = malloc(sizeof(loaded_classes.list[0]) * loaded_classes.cap);
+        init_java_lang_Object(&loaded_classes.list[0]);
+        loaded_classes.nr = 1;
+    }
+
+    for (size_t i = 0; i < loaded_classes.nr; ++i)
+        if (strcmp(loaded_classes.list[i].name, classname) == 0)
+            return &loaded_classes.list[i];
+
     char* filename = malloc(strlen(classname) + strlen(".class") + 1);
     sprintf(filename, "%s.class", classname);
     FILE* cf = fopen(filename, "r");
     if (cf == NULL)
         errorf("Unable to open file %s for reading", filename);
-    free(filename);
-
     uint32_t magic = read_big_endian_u4(cf);
     if (magic != 0xcafebabe)
         errorf("bad magic number 0x%x for class file %s\n", magic, filename);
+    free(filename);
 
     uint16_t minor_version = read_big_endian_u2(cf), major_version = read_big_endian_u2(cf);
 
-    Class_t c;
+    if (loaded_classes.nr == loaded_classes.cap) {
+        loaded_classes.cap = 2 * loaded_classes.cap;
+        loaded_classes.list = realloc(loaded_classes.list, sizeof(loaded_classes.list[0]) * loaded_classes.cap);
+    }
+    Class_t* c = &loaded_classes.list[loaded_classes.nr++];
 
-    c.constant_pool.size = read_big_endian_u2(cf) - 1;
-    c.constant_pool.list = load_constant_pool(cf, c.constant_pool.size);
+    c->constant_pool.size = read_big_endian_u2(cf) - 1;
+    c->constant_pool.list = load_constant_pool(cf, c->constant_pool.size);
 
-    c.flags = read_big_endian_u2(cf);
-    c.name = resolve_constant(c.constant_pool.list, read_big_endian_u2(cf));
-    c.super = resolve_constant(c.constant_pool.list, read_big_endian_u2(cf));
+    c->flags = read_big_endian_u2(cf);
+    c->name = resolve_constant(c->constant_pool.list, read_big_endian_u2(cf));
+    c->super = load_class(resolve_constant(c->constant_pool.list, read_big_endian_u2(cf)));
 
-    c.interfaces.size = read_big_endian_u2(cf);
-    c.interfaces.list = load_interfaces(cf, c.interfaces.size, c.constant_pool.list);
+    c->interfaces.size = read_big_endian_u2(cf);
+    c->interfaces.list = load_interfaces(cf, c->interfaces.size, c->constant_pool.list);
 
-    c.fields.size = read_big_endian_u2(cf);
-    c.fields.list = load_fields(cf, c.fields.size, c.constant_pool.list);
+    c->fields.size = read_big_endian_u2(cf);
+    c->fields.list = load_fields(cf, c->fields.size, c->constant_pool.list);
 
-    c.methods.size = read_big_endian_u2(cf);
-    c.methods.list = (Method_t*)load_fields(cf, c.methods.size, c.constant_pool.list);
+    c->methods.size = read_big_endian_u2(cf);
+    c->methods.list = (Method_t*)load_fields(cf, c->methods.size, c->constant_pool.list);
 
-    c.attrs.size = read_big_endian_u2(cf);
-    c.attrs.list = load_attrs(cf, c.attrs.size, c.constant_pool.list);
+    c->attrs.size = read_big_endian_u2(cf);
+    c->attrs.list = load_attrs(cf, c->attrs.size, c->constant_pool.list);
 
-    debugf("===== Loading class '%s' (classfile ver. %d.%d) =====\n", c.name, major_version, minor_version);
-    print_class(&c, 0);
+    debugf("===== Loading class '%s' (classfile ver. %d.%d) =====\n", c->name, major_version, minor_version);
+    print_class(c, 0);
     debugf("=====================================================\n");
     return c;
 }
