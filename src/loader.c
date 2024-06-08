@@ -43,22 +43,6 @@ static uint8_t read_big_endian_u1(FILE* f)
     return a;
 }
 
-static char const* resolve_constant(Const_t* constant_pool_list, size_t i)
-{
-    Const_t* c = &constant_pool_list[i - 1];
-    switch (c->tag) {
-    case CONST_UTF8:
-        return c->string;
-    case CONST_STRING:
-        return resolve_constant(constant_pool_list, c->string_index);
-    case CONST_CLASS:
-    case CONST_NAME_AND_TYPE:
-        return resolve_constant(constant_pool_list, c->name_index);
-    default:
-        return "";
-    }
-}
-
 static Const_t* load_constant_pool(FILE* cf, size_t nr)
 {
     if (nr == 0)
@@ -146,7 +130,7 @@ static void interpret_attr(Attr_t* attr, void* attr_buf, Const_t* constant_pool_
         attr->attr_source_file.source_file = resolve_constant(constant_pool_list, u2_from_big_endian(p->index));
     } break;
     default:
-        panic();
+        panicf("unknown attr type 0x%x", attr->type);
     }
 }
 static Attr_t* load_attrs(FILE* cf, size_t nr, Const_t* constant_pool_list)
@@ -166,7 +150,7 @@ static Attr_t* load_attrs(FILE* cf, size_t nr, Const_t* constant_pool_list)
     return attrs;
 }
 
-static Field_t* load_fields(FILE* cf, size_t nr, Const_t* constant_pool_list)
+static Field_t* load_fields(FILE* cf, size_t nr, Const_t* constant_pool_list, size_t* cp_entry)
 {
     if (nr == 0)
         return NULL;
@@ -174,7 +158,8 @@ static Field_t* load_fields(FILE* cf, size_t nr, Const_t* constant_pool_list)
     for (size_t i = 0; i < nr; ++i) {
         Field_t f;
         f.flags = read_big_endian_u2(cf);
-        f.name = resolve_constant(constant_pool_list, read_big_endian_u2(cf));
+        cp_entry[i] = read_big_endian_u2(cf);
+        f.name = resolve_constant(constant_pool_list, cp_entry[i]);
         f.desc = resolve_constant(constant_pool_list, read_big_endian_u2(cf));
         f.attrs.size = read_big_endian_u2(cf);
         f.attrs.list = load_attrs(cf, f.attrs.size, constant_pool_list);
@@ -196,21 +181,33 @@ static void print_attr(Attr_t const* a, size_t indent)
 {
     switch (a->type) {
     case ATTR_CODE:
-        indentdebugf(indent, "Code: Max stack=%lu, Max locals=%lu, Bytecode = ", a->attr_code.max_stack, a->attr_code.max_locals);
-        for (size_t i = 0; i < a->attr_code.code_length; i++)
-            debugf("0x%x ", a->attr_code.code[i]);
+        indentdebugf(indent, "Code: Max stack=%lu, Max locals=%lu,\n", a->attr_code.max_stack, a->attr_code.max_locals);
+        indentdebugf(indent, "      Bytecode=\n");
+        {
+#define CODEWIDTH 10
+            size_t i;
+            for (i = 0; i < CODEWIDTH * (a->attr_code.code_length / CODEWIDTH); i += CODEWIDTH) {
+                indentdebugf(indent + 2, "  ");
+                for (size_t j = 0; j < CODEWIDTH; ++j)
+                    debugf("0x%02x ", a->attr_code.code[i + j]);
+                debugf("\n");
+            }
+            indentdebugf(indent + 2, "  ");
+            for (size_t k = i; k < a->attr_code.code_length; ++k)
+                debugf("0x%02x ", a->attr_code.code[k]);
+        }
         break;
     case ATTR_SOURCE_FILE:
         indentdebugf(indent, "Source file: %s", a->attr_source_file.source_file);
         break;
     default:
-        panic();
+        panicf("unknown attr type 0x%x", a->type);
     }
     debugf("\n");
 }
 static void print_field(Field_t* f, size_t indent)
 {
-    indentdebugf(indent, "%s: %s\n", f->name, f->desc);
+    indentdebugf(indent, "%s:%s %s\n", f->name, (f->flags & 0x0008 ? " [static]" : ""), f->desc);
     for (size_t i = 0; i < f->attrs.size; ++i)
         print_attr(&f->attrs.list[i], indent + 1);
 }
@@ -239,26 +236,49 @@ static void print_class(Class_t const* c, size_t indent)
 
 static void init_java_lang_Object(Class_t* c)
 {
+    static Method_t java_lang_Object_init = {
+        .flags = 0,
+        .name = "<init>",
+        .desc = "()V",
+        .attrs = { 0, NULL },
+    };
     Class_t java_lang_Object = {
-        { 0, NULL },
-        "java/lang/Object",
-        NULL,
-        0,
-        { 0, NULL },
-        { 0, NULL },
-        { 0, NULL },
-        { 0, NULL },
+        .constant_pool = { 0, NULL },
+        .name = "java/lang/Object",
+        .super = NULL,
+        .flags = 0,
+        .interfaces = { 0, NULL },
+        .fields = { 0, NULL, NULL, NULL },
+        .methods = { 1, &java_lang_Object_init },
+        .attrs = { 0, NULL },
     };
     *c = java_lang_Object;
 }
 
+static size_t get_size_from_desc(char desc)
+{
+    switch (desc) {
+    case 'I':
+    case 'F':
+        return 4;
+    case 'J':
+    case 'D':
+    case 'L':
+        return 8;
+    case '[':
+        return 16;
+    default:
+        panicf("unknown type desc %c", desc);
+    }
+}
+
+static struct {
+    size_t nr, cap;
+    Class_t* list;
+} loaded_classes = { 0, 0, NULL };
+
 Class_t* load_class(char const* classname)
 {
-    static struct {
-        size_t nr, cap;
-        Class_t* list;
-    } loaded_classes = { 0, 0, NULL };
-
     if (loaded_classes.cap == 0) {
         loaded_classes.cap = 2;
         loaded_classes.list = malloc(sizeof(loaded_classes.list[0]) * loaded_classes.cap);
@@ -299,16 +319,72 @@ Class_t* load_class(char const* classname)
     c->interfaces.list = load_interfaces(cf, c->interfaces.size, c->constant_pool.list);
 
     c->fields.size = read_big_endian_u2(cf);
-    c->fields.list = load_fields(cf, c->fields.size, c->constant_pool.list);
+    c->fields.cp_entry = malloc(sizeof(c->fields.cp_entry[0]) * c->fields.size);
+    c->fields.list = load_fields(cf, c->fields.size, c->constant_pool.list, c->fields.cp_entry);
+    c->fields.offset = malloc(sizeof(c->fields.offset[0]) * c->fields.size);
+    size_t off = 0;
+    for (size_t i = 0; i < c->fields.size; ++i) {
+        c->fields.offset[i] = off;
+        c->fields.cp_entry[i] = 0;
+        off += get_size_from_desc(c->fields.list[i].desc[0]);
+    }
+    c->size = off;
 
     c->methods.size = read_big_endian_u2(cf);
-    c->methods.list = (Method_t*)load_fields(cf, c->methods.size, c->constant_pool.list);
+    c->methods.cp_entry = malloc(sizeof(c->methods.cp_entry[0]) * c->methods.size);
+    c->methods.list = (Method_t*)load_fields(cf, c->methods.size, c->constant_pool.list, c->methods.cp_entry);
 
     c->attrs.size = read_big_endian_u2(cf);
     c->attrs.list = load_attrs(cf, c->attrs.size, c->constant_pool.list);
 
-    debugf("===== Loading class '%s' (classfile ver. %d.%d) =====\n", c->name, major_version, minor_version);
-    print_class(c, 0);
-    debugf("=====================================================\n");
+    indentdebugf(1, "====== Loaded class '%s' (classfile ver. %d.%d) =====\n", c->name, major_version, minor_version);
+    print_class(c, 2);
+    indentdebugf(1, "=====================================================\n");
+    fclose(cf);
     return c;
+}
+
+static void free_attr(Attr_t const* a)
+{
+    if (a->type == ATTR_CODE)
+        free(a->attr_code.code);
+}
+
+static void free_field(Field_t const* f)
+{
+    for (size_t i = 0; i < f->attrs.size; ++i)
+        free_attr(&f->attrs.list[i]);
+    free(f->attrs.list);
+}
+
+static void free_class(Class_t const* c)
+{
+    free(c->interfaces.list);
+
+    for (size_t i = 0; i < c->fields.size; ++i)
+        free_field(&c->fields.list[i]);
+    free(c->fields.list);
+    free(c->fields.offset);
+    free(c->fields.cp_entry);
+
+    for (size_t i = 0; i < c->methods.size; ++i)
+        free_field((Method_t*)&c->methods.list[i]);
+    free(c->methods.list);
+    free(c->methods.cp_entry);
+
+    for (size_t i = 0; i < c->constant_pool.size; ++i)
+        if (c->constant_pool.list[i].tag == CONST_UTF8)
+            free(c->constant_pool.list[i].string);
+    free(c->constant_pool.list);
+
+    for (size_t i = 0; i < c->attrs.size; ++i)
+        free_attr(&c->attrs.list[i]);
+    free(c->attrs.list);
+}
+
+void load_end()
+{
+    for (size_t i = 1; i < loaded_classes.nr; ++i)
+        free_class(&loaded_classes.list[i]);
+    free(loaded_classes.list);
 }

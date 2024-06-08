@@ -21,6 +21,10 @@ typedef struct {
     uint16_t desc_index;
 } Const_t;
 
+enum AttrType {
+    ATTR_CODE,
+    ATTR_SOURCE_FILE,
+};
 typedef struct {
     size_t max_stack, max_locals;
     size_t code_length;
@@ -29,17 +33,15 @@ typedef struct {
 typedef struct {
     char const* source_file;
 } AttrSourceFile_t;
-
 typedef struct {
-    enum {
-        ATTR_CODE,
-        ATTR_SOURCE_FILE,
-    } type;
+    enum AttrType type;
     union {
         AttrCode_t attr_code;
         AttrSourceFile_t attr_source_file;
     };
 } Attr_t;
+
+typedef struct _Class Class_t;
 
 typedef struct {
     uint16_t flags;
@@ -53,8 +55,7 @@ typedef struct {
 
 typedef Field_t Method_t;
 
-typedef struct _Class Class_t;
-typedef struct _Class {
+struct _Class {
     struct {
         size_t size;
         Const_t* list;
@@ -63,6 +64,7 @@ typedef struct _Class {
     Class_t* super;
 
     uint16_t flags;
+    size_t size;
 
     struct {
         size_t size;
@@ -71,15 +73,28 @@ typedef struct _Class {
     struct {
         size_t size;
         Field_t* list;
+        size_t* offset;
+        size_t* cp_entry;
     } fields;
     struct {
         size_t size;
         Method_t* list;
+        size_t* cp_entry;
     } methods;
     struct {
         size_t size;
         Attr_t* list;
     } attrs;
-} Class_t;
+};
+
+char const* resolve_constant(Const_t* constant_pool_list, size_t i);
+typedef struct {
+    Class_t* c;
+    Method_t* m;
+} methodref_t;
+methodref_t resolve_methodref(Const_t* constant_pool_list, size_t i);
+
+Method_t* get_method(Class_t* c, char const* methodname);
+Attr_t get_attr(Method_t* m, enum AttrType t);
 
 #endif // CLASS_H

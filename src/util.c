@@ -4,6 +4,7 @@
 
 void errorf(char const* restrict fmt, ...)
 {
+    fprintf(stderr, "ERROR: ");
     va_list ap;
     va_start(ap, fmt);
     vfprintf(stderr, fmt, ap);

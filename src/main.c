@@ -7,13 +7,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef union {
+typedef union Value {
     int32_t i;
     float f;
     void* a;
 
     int64_t l;
     double d;
+    struct {
+        uint32_t len, cap;
+        union Value* buf;
+    } array;
 } Value_t;
 
 typedef struct {
@@ -162,6 +166,9 @@ enum opcode {
     FRETURN,
     DRETURN,
     ARETURN,
+
+    NEW = 0xbb,
+    INVOKESTATIC = 0xb8,
 };
 
 void print_stack(Value_t* stack, size_t sp)
@@ -169,12 +176,72 @@ void print_stack(Value_t* stack, size_t sp)
     debugf("[ ");
     if (sp + 1 != 0)
         for (size_t i = 0; i <= sp; ++i)
-            debugf("%u ", stack[i].i);
+            debugf("0x%016lx ", stack[i].l);
     debugf("]");
+}
+
+struct desc_info {
+    uint16_t nr_args : 15;
+    uint16_t returns : 1;
+};
+
+static struct desc_info parse_desc(char const* desc)
+{
+    struct desc_info info = { 0, 0 };
+    char const* p = desc;
+    ++p;
+    for (; *p != ')'; ++p) {
+        info.nr_args++;
+        while (*p == '[')
+            ++p;
+        if (*p == 'L') {
+            ++p;
+            while (*p != ';')
+                ++p;
+        }
+    }
+    ++p;
+    if (*p != 'V')
+        info.returns = 1;
+    return info;
+}
+
+Value_t exec(Frame_t* f);
+Value_t call_method(Class_t* c, Method_t* m, Value_t const* args, size_t nr_args)
+{
+    debugf("Executing function %s\n", m->name);
+
+    Value_t* locals = malloc(sizeof(Value_t) * m->attrs.list[0].attr_code.max_locals);
+    // to placate valgrind
+    memset(locals, 0, sizeof(Value_t) * m->attrs.list[0].attr_code.max_locals);
+
+    Value_t* stack = malloc(sizeof(Value_t) * m->attrs.list[0].attr_code.max_stack);
+    // to placate valgrind
+    memset(stack, 0, sizeof(Value_t) * m->attrs.list[0].attr_code.max_stack);
+
+    memmove(locals, args, nr_args * sizeof(args[0]));
+
+    Frame_t f = {
+        c,
+        0,
+        m->attrs.list[0].attr_code.code,
+        locals,
+        -1,
+        stack,
+    };
+    Value_t ret = exec(&f);
+
+    free(locals);
+    free(stack);
+
+    debugf("Exiting function %s\n", m->name);
+
+    return ret;
 }
 
 Value_t exec(Frame_t* f)
 {
+    Const_t* constant_pool_list = f->class->constant_pool.list;
     Value_t* stack = f->stack;
     Value_t* locals = f->locals;
     size_t sp = f->sp;
@@ -539,6 +606,26 @@ Value_t exec(Frame_t* f)
         case DRETURN:
         case ARETURN:
             return stack[sp--];
+        case NEW: {
+            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            ip += 2;
+            Class_t* c = load_class(resolve_constant(constant_pool_list, s));
+            stack[++sp].a = malloc(c->size);
+        } break;
+        case INVOKESTATIC: {
+            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            ip += 2;
+            methodref_t methodref = resolve_methodref(constant_pool_list, s);
+
+            struct desc_info info = parse_desc(methodref.m->desc);
+
+            Value_t* args = &stack[sp - info.nr_args + 1];
+
+            Value_t ret = call_method(methodref.c, methodref.m, args, info.nr_args);
+            sp -= info.nr_args;
+            if (info.returns)
+                stack[++sp] = ret;
+        } break;
         default:
             errorf("Unrecognised opcode 0x%x", op);
         }
@@ -551,27 +638,12 @@ int main(int argc, char** argv)
         errorf("Usage: %s <Main class>\n", argv[0]);
 
     Class_t* c = load_class(argv[1]);
+    Method_t* main_method = get_method(c, "main");
 
-    Method_t* main_method = NULL;
-    for (size_t i = 0; i < c->methods.size; ++i) {
-        if (strcmp(c->methods.list[i].name, "main") == 0) {
-            main_method = &c->methods.list[i];
-            break;
-        }
-    }
-    if (main_method == NULL)
-        errorf("unable to find main method in class %s", argv[1]);
+    Value_t ret = call_method(c, main_method, NULL, 0);
+    printf("%d\n", ret.i);
 
-    Value_t* locals = malloc(sizeof(Value_t) * main_method->attrs.list[0].attr_code.max_locals);
-    Frame_t f = {
-        c,
-        0,
-        main_method->attrs.list[0].attr_code.code,
-        locals,
-        -1,
-        malloc(sizeof(Value_t) * main_method->attrs.list[0].attr_code.max_stack),
-    };
-    printf("%u\n", exec(&f).i);
+    load_end();
 
     return 0;
 }
