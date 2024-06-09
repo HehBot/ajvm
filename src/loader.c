@@ -90,7 +90,11 @@ static char const** load_interfaces(FILE* cf, size_t nr, Const_t* constant_pool_
     return list;
 }
 
-static int get_attr_type(char const* t)
+enum AttrType {
+    ATTR_CODE,
+    ATTR_SOURCE_FILE,
+};
+static enum AttrType get_attr_type(char const* t)
 {
     if (!strcmp(t, "Code"))
         return ATTR_CODE;
@@ -98,74 +102,119 @@ static int get_attr_type(char const* t)
         return ATTR_SOURCE_FILE;
     errorf("Unknown attribute type: %s\n", t);
 }
-static void interpret_attr(Attr_t* attr, void* attr_buf, Const_t* constant_pool_list)
+
+static void load_field_attrs(FILE* cf, Field_t* f, Const_t* constant_pool_list)
 {
-    switch (attr->type) {
-    case ATTR_CODE: {
-        struct ClassFileAttrCode_Piece_1 {
-            uint16_t max_stack;
-            uint16_t max_locals;
-            uint32_t code_length;
-            uint8_t code[];
-        };
-        struct ClassFileAttrCode_Piece_1* p1 = attr_buf;
-
-        attr->attr_code.max_stack = u2_from_big_endian(p1->max_stack);
-
-        attr->attr_code.max_locals = u2_from_big_endian(p1->max_locals);
-
-        size_t code_length = u4_from_big_endian(p1->code_length);
-        attr->attr_code.code_length = code_length;
-
-        void* code = malloc(code_length);
-        memmove(code, &p1->code, code_length);
-        attr->attr_code.code = code;
-    } break;
-    case ATTR_SOURCE_FILE: {
-        struct ClassFileAttrSourceFile {
-            uint16_t index;
-        };
-        struct ClassFileAttrSourceFile* p = attr_buf;
-
-        attr->attr_source_file.source_file = resolve_constant(constant_pool_list, u2_from_big_endian(p->index));
-    } break;
-    default:
-        panicf("unknown attr type 0x%x", attr->type);
-    }
-}
-static Attr_t* load_attrs(FILE* cf, size_t nr, Const_t* constant_pool_list)
-{
-    if (nr == 0)
-        return NULL;
-    Attr_t* attrs = malloc(sizeof(attrs[0]) * nr);
+    size_t nr = read_big_endian_u2(cf);
     for (size_t i = 0; i < nr; ++i) {
-        char const* attr_name = resolve_constant(constant_pool_list, read_big_endian_u2(cf));
-        attrs[i].type = get_attr_type(attr_name);
+        enum AttrType attr_type = get_attr_type(resolve_constant(constant_pool_list, read_big_endian_u2(cf)));
 
         size_t size = read_big_endian_u4(cf);
         void* attr_buf = bytes(cf, size, 0);
-        interpret_attr(&attrs[i], attr_buf, constant_pool_list);
+
+        switch (attr_type) {
+        case ATTR_SOURCE_FILE: {
+            struct ClassFileAttrSourceFile {
+                uint16_t index;
+            };
+            struct ClassFileAttrSourceFile* p = attr_buf;
+
+            f->source_file = resolve_constant(constant_pool_list, u2_from_big_endian(p->index));
+        } break;
+        default:
+            panicf("unknown attr for field 0x%x", attr_type);
+        }
+
         free(attr_buf);
     }
-    return attrs;
 }
-
-static Field_t* load_fields(FILE* cf, size_t nr, Const_t* constant_pool_list, size_t* cp_entry)
+static void load_fields(FILE* cf, Class_t* c)
 {
-    if (nr == 0)
-        return NULL;
+    size_t nr = read_big_endian_u2(cf);
+    size_t* cp_entry = malloc(sizeof(cp_entry[0]) * nr);
+    size_t off = c->super->size;
     Field_t* fields = malloc(sizeof(fields[0]) * nr);
     for (size_t i = 0; i < nr; ++i) {
         Field_t f;
         f.flags = read_big_endian_u2(cf);
         cp_entry[i] = read_big_endian_u2(cf);
-        f.name = resolve_constant(constant_pool_list, cp_entry[i]);
-        f.desc = resolve_constant(constant_pool_list, read_big_endian_u2(cf));
-        f.attrs.size = read_big_endian_u2(cf);
-        f.attrs.list = load_attrs(cf, f.attrs.size, constant_pool_list);
+        f.name = resolve_constant(c->constant_pool.list, cp_entry[i]);
+        f.desc = resolve_constant(c->constant_pool.list, read_big_endian_u2(cf));
+        load_field_attrs(cf, &f, c->constant_pool.list);
+
+        f.offset = off;
+        off += get_size_from_desc(f.desc[0]);
+
         fields[i] = f;
     }
-    return fields;
+    c->fields.list = fields;
+    c->fields.size = nr;
+    c->fields.cp_entry = cp_entry;
+    c->size = off + c->super->size;
+}
+
+static void load_method_attrs(FILE* cf, Method_t* m, Const_t* constant_pool_list)
+{
+    size_t nr = read_big_endian_u2(cf);
+    for (size_t i = 0; i < nr; ++i) {
+        enum AttrType attr_type = get_attr_type(resolve_constant(constant_pool_list, read_big_endian_u2(cf)));
+
+        size_t size = read_big_endian_u4(cf);
+        void* attr_buf = bytes(cf, size, 0);
+
+        switch (attr_type) {
+        case ATTR_CODE: {
+            struct ClassFileAttrCode_Piece_1 {
+                uint16_t max_stack;
+                uint16_t max_locals;
+                uint32_t code_length;
+                uint8_t code[];
+            };
+            struct ClassFileAttrCode_Piece_1* p1 = attr_buf;
+
+            m->max_stack = u2_from_big_endian(p1->max_stack);
+
+            m->max_locals = u2_from_big_endian(p1->max_locals);
+
+            size_t code_length = u4_from_big_endian(p1->code_length);
+            m->code_length = code_length;
+
+            void* code = malloc(code_length);
+            memmove(code, &p1->code, code_length);
+            m->code = code;
+        } break;
+        case ATTR_SOURCE_FILE: {
+            struct ClassFileAttrSourceFile {
+                uint16_t index;
+            };
+            struct ClassFileAttrSourceFile* p = attr_buf;
+
+            m->source_file = resolve_constant(constant_pool_list, u2_from_big_endian(p->index));
+        } break;
+        default:
+            panicf("unknown attr for method 0x%x", attr_type);
+        }
+
+        free(attr_buf);
+    }
+}
+static void load_methods(FILE* cf, Class_t* c)
+{
+    size_t nr = read_big_endian_u2(cf);
+    Method_t* methods = malloc(sizeof(methods[0]) * nr);
+    size_t* cp_entry = malloc(sizeof(cp_entry[0]) * nr);
+    for (size_t i = 0; i < nr; ++i) {
+        Method_t m;
+        m.flags = read_big_endian_u2(cf);
+        cp_entry[i] = read_big_endian_u2(cf);
+        m.name = resolve_constant(c->constant_pool.list, cp_entry[i]);
+        m.desc = resolve_constant(c->constant_pool.list, read_big_endian_u2(cf));
+        load_method_attrs(cf, &m, c->constant_pool.list);
+        methods[i] = m;
+    }
+    c->methods.size = nr;
+    c->methods.list = methods;
+    c->methods.cp_entry = cp_entry;
 }
 
 static void __attribute__((format(printf, 2, 3))) indentdebugf(int indent, char const* restrict fmt, ...)
@@ -177,39 +226,13 @@ static void __attribute__((format(printf, 2, 3))) indentdebugf(int indent, char 
     vdebugf(fmt, ap);
     va_end(ap);
 }
-static void print_attr(Attr_t const* a, size_t indent)
+static void print_field(Field_t const* f, size_t indent)
 {
-    switch (a->type) {
-    case ATTR_CODE:
-        indentdebugf(indent, "Code: Max stack=%lu, Max locals=%lu,\n", a->attr_code.max_stack, a->attr_code.max_locals);
-        indentdebugf(indent, "      Bytecode=\n");
-        {
-#define CODEWIDTH 10
-            size_t i;
-            for (i = 0; i < CODEWIDTH * (a->attr_code.code_length / CODEWIDTH); i += CODEWIDTH) {
-                indentdebugf(indent + 2, "  ");
-                for (size_t j = 0; j < CODEWIDTH; ++j)
-                    debugf("0x%02x ", a->attr_code.code[i + j]);
-                debugf("\n");
-            }
-            indentdebugf(indent + 2, "  ");
-            for (size_t k = i; k < a->attr_code.code_length; ++k)
-                debugf("0x%02x ", a->attr_code.code[k]);
-        }
-        break;
-    case ATTR_SOURCE_FILE:
-        indentdebugf(indent, "Source file: %s", a->attr_source_file.source_file);
-        break;
-    default:
-        panicf("unknown attr type 0x%x", a->type);
-    }
-    debugf("\n");
+    indentdebugf(indent, "%s:%s %s\n", f->name, (f->flags & ACC_STATIC ? " [static]" : ""), f->desc);
 }
-static void print_field(Field_t* f, size_t indent)
+static void print_method(Method_t const* m, size_t indent)
 {
-    indentdebugf(indent, "%s:%s %s\n", f->name, (f->flags & 0x0008 ? " [static]" : ""), f->desc);
-    for (size_t i = 0; i < f->attrs.size; ++i)
-        print_attr(&f->attrs.list[i], indent + 1);
+    indentdebugf(indent, "%s:%s\n", m->name, m->desc);
 }
 static void print_class(Class_t const* c, size_t indent)
 {
@@ -227,48 +250,32 @@ static void print_class(Class_t const* c, size_t indent)
 
     indentdebugf(indent, "Methods: %lu\n", c->methods.size);
     for (size_t i = 0; i < c->methods.size; i++)
-        print_field(&c->methods.list[i], indent + 1);
-
-    indentdebugf(indent, "Attributes:\n");
-    for (size_t i = 0; i < c->attrs.size; ++i)
-        print_attr(&c->attrs.list[i], indent + 1);
+        print_method(&c->methods.list[i], indent + 1);
 }
 
-static void init_java_lang_Object(Class_t* c)
+void load_class_attrs(FILE* cf, Class_t* c)
 {
-    static Method_t java_lang_Object_init = {
-        .flags = 0,
-        .name = "<init>",
-        .desc = "()V",
-        .attrs = { 0, NULL },
-    };
-    Class_t java_lang_Object = {
-        .constant_pool = { 0, NULL },
-        .name = "java/lang/Object",
-        .super = NULL,
-        .flags = 0,
-        .interfaces = { 0, NULL },
-        .fields = { 0, NULL, NULL, NULL },
-        .methods = { 1, &java_lang_Object_init },
-        .attrs = { 0, NULL },
-    };
-    *c = java_lang_Object;
-}
+    size_t nr = read_big_endian_u2(cf);
+    for (size_t i = 0; i < nr; ++i) {
+        enum AttrType attr_type = get_attr_type(resolve_constant(c->constant_pool.list, read_big_endian_u2(cf)));
 
-static size_t get_size_from_desc(char desc)
-{
-    switch (desc) {
-    case 'I':
-    case 'F':
-        return 4;
-    case 'J':
-    case 'D':
-    case 'L':
-        return 8;
-    case '[':
-        return 16;
-    default:
-        panicf("unknown type desc %c", desc);
+        size_t size = read_big_endian_u4(cf);
+        void* attr_buf = bytes(cf, size, 0);
+
+        switch (attr_type) {
+        case ATTR_SOURCE_FILE: {
+            struct ClassFileAttrSourceFile {
+                uint16_t index;
+            };
+            struct ClassFileAttrSourceFile* p = attr_buf;
+
+            c->source_file = resolve_constant(c->constant_pool.list, u2_from_big_endian(p->index));
+        } break;
+        default:
+            panicf("unknown attr for class 0x%x", attr_type);
+        }
+
+        free(attr_buf);
     }
 }
 
@@ -279,13 +286,6 @@ static struct {
 
 Class_t* load_class(char const* classname)
 {
-    if (loaded_classes.cap == 0) {
-        loaded_classes.cap = 2;
-        loaded_classes.list = malloc(sizeof(loaded_classes.list[0]) * loaded_classes.cap);
-        init_java_lang_Object(&loaded_classes.list[0]);
-        loaded_classes.nr = 1;
-    }
-
     for (size_t i = 0; i < loaded_classes.nr; ++i)
         if (strcmp(loaded_classes.list[i].name, classname) == 0)
             return &loaded_classes.list[i];
@@ -318,45 +318,27 @@ Class_t* load_class(char const* classname)
     c->interfaces.size = read_big_endian_u2(cf);
     c->interfaces.list = load_interfaces(cf, c->interfaces.size, c->constant_pool.list);
 
-    c->fields.size = read_big_endian_u2(cf);
-    c->fields.cp_entry = malloc(sizeof(c->fields.cp_entry[0]) * c->fields.size);
-    c->fields.list = load_fields(cf, c->fields.size, c->constant_pool.list, c->fields.cp_entry);
-    c->fields.offset = malloc(sizeof(c->fields.offset[0]) * c->fields.size);
-    size_t off = 0;
-    for (size_t i = 0; i < c->fields.size; ++i) {
-        c->fields.offset[i] = off;
-        c->fields.cp_entry[i] = 0;
-        off += get_size_from_desc(c->fields.list[i].desc[0]);
-    }
-    c->size = off;
+    load_fields(cf, c);
 
-    c->methods.size = read_big_endian_u2(cf);
-    c->methods.cp_entry = malloc(sizeof(c->methods.cp_entry[0]) * c->methods.size);
-    c->methods.list = (Method_t*)load_fields(cf, c->methods.size, c->constant_pool.list, c->methods.cp_entry);
+    load_methods(cf, c);
 
-    c->attrs.size = read_big_endian_u2(cf);
-    c->attrs.list = load_attrs(cf, c->attrs.size, c->constant_pool.list);
+    load_class_attrs(cf, c);
 
-    indentdebugf(1, "====== Loaded class '%s' (classfile ver. %d.%d) =====\n", c->name, major_version, minor_version);
+    indentdebugf(1, "======= Loaded %s (classfile '%s' ver. %d.%d) =======\n", c->name, c->source_file, major_version, minor_version);
     print_class(c, 2);
     indentdebugf(1, "=====================================================\n");
+
     fclose(cf);
     return c;
 }
 
-static void free_attr(Attr_t const* a)
-{
-    if (a->type == ATTR_CODE)
-        free(a->attr_code.code);
-}
-
 static void free_field(Field_t const* f)
 {
-    for (size_t i = 0; i < f->attrs.size; ++i)
-        free_attr(&f->attrs.list[i]);
-    free(f->attrs.list);
 }
-
+static void free_method(Method_t const* m)
+{
+    free(m->code);
+}
 static void free_class(Class_t const* c)
 {
     free(c->interfaces.list);
@@ -364,11 +346,10 @@ static void free_class(Class_t const* c)
     for (size_t i = 0; i < c->fields.size; ++i)
         free_field(&c->fields.list[i]);
     free(c->fields.list);
-    free(c->fields.offset);
     free(c->fields.cp_entry);
 
     for (size_t i = 0; i < c->methods.size; ++i)
-        free_field((Method_t*)&c->methods.list[i]);
+        free_method(&c->methods.list[i]);
     free(c->methods.list);
     free(c->methods.cp_entry);
 
@@ -376,15 +357,96 @@ static void free_class(Class_t const* c)
         if (c->constant_pool.list[i].tag == CONST_UTF8)
             free(c->constant_pool.list[i].string);
     free(c->constant_pool.list);
-
-    for (size_t i = 0; i < c->attrs.size; ++i)
-        free_attr(&c->attrs.list[i]);
-    free(c->attrs.list);
 }
 
+static void init_java_lang_Object(Class_t* c)
+{
+    static Method_t init = {
+        .flags = ACC_NATIVE,
+        .name = "<init>",
+        .desc = "()V",
+    };
+    Class_t java_lang_Object = {
+        .constant_pool = { 0, NULL },
+        .name = "java/lang/Object",
+        .super = NULL,
+        .flags = 0,
+        .size = 0,
+        .interfaces = { 0, NULL },
+        .fields = {
+            0,
+            NULL,
+            NULL,
+        },
+        .methods = { 1, &init, NULL },
+        .source_file = NULL,
+    };
+    *c = java_lang_Object;
+}
+static void init_java_lang_System(Class_t* c)
+{
+    static Field_t out = {
+        .flags = ACC_STATIC,
+        .name = "out",
+        .desc = "Ljava/io/PrintStream;",
+    };
+    out.static_val = (Value_t) { .type = A, .a = stdout };
+    Class_t java_lang_System = {
+        .constant_pool = { 0, NULL },
+        .name = "java/lang/System",
+        .super = NULL,
+        .flags = 0,
+        .size = 0,
+        .interfaces = { 0, NULL },
+        .fields = {
+            1,
+            &out,
+            NULL,
+        },
+        .methods = { 0, NULL, NULL },
+        .source_file = NULL,
+    };
+    *c = java_lang_System;
+}
+static void init_java_io_PrintStream(Class_t* c)
+{
+    static Method_t methods[] = {
+        {
+            .flags = 0,
+            .name = "<init>",
+            .desc = "()V",
+        },
+        {
+            .flags = ACC_NATIVE,
+            .name = "println",
+            .desc = "(I)V",
+        }
+    };
+    Class_t java_io_PrintStream = {
+        .constant_pool = { 0, NULL },
+        .name = "java/io/PrintStream",
+        .super = NULL,
+        .flags = 0,
+        .size = 0,
+        .interfaces = { 0, NULL },
+        .fields = { 0, NULL, NULL },
+        .methods = { sizeof(methods) / sizeof(methods[0]), methods, NULL },
+        .source_file = NULL,
+    };
+    *c = java_io_PrintStream;
+}
+void load_init()
+{
+    loaded_classes.cap = 3;
+    loaded_classes.list = malloc(sizeof(loaded_classes.list[0]) * loaded_classes.cap);
+    loaded_classes.nr = 3;
+    init_java_lang_Object(&loaded_classes.list[0]);
+    init_java_lang_System(&loaded_classes.list[1]);
+    init_java_io_PrintStream(&loaded_classes.list[2]);
+}
 void load_end()
 {
-    for (size_t i = 1; i < loaded_classes.nr; ++i)
+    for (size_t i = 3; i < loaded_classes.nr; ++i)
         free_class(&loaded_classes.list[i]);
     free(loaded_classes.list);
 }

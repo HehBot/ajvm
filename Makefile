@@ -15,7 +15,7 @@ DEPS := $(OBJS:.o=.d)
 
 INC_FLAGS := -I$(SRC_DIR)
 
-CCFLAGS := -Wall -Wpedantic -Werror $(INC_FLAGS) -g -MMD -MP
+CCFLAGS := -Wall -Wpedantic -Werror $(INC_FLAGS) -g -MMD -MP -DNDEBUG
 LDFLAGS :=
 LIBFLAGS := -lm
 

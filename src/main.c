@@ -7,19 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef union Value {
-    int32_t i;
-    float f;
-    void* a;
-
-    int64_t l;
-    double d;
-    struct {
-        uint32_t len, cap;
-        union Value* buf;
-    } array;
-} Value_t;
-
 typedef struct {
     Class_t const* class;
 
@@ -32,151 +19,190 @@ typedef struct {
     Value_t* stack;
 } Frame_t;
 
-enum opcode {
-    NOP = 0x00,
-
-    ACONST_NULL = 0x01,
-    ICONST_M1 = 0x02,
-    ICONST_0,
-    ICONST_1,
-    ICONST_2,
-    ICONST_3,
-    ICONST_4,
-    ICONST_5,
-    LCONST_0,
-    LCONST_1,
-    FCONST_0,
-    FCONST_1,
-    DCONST_0,
-    DCONST_1,
-
-    BIPUSH = 0x10,
-    SIPUSH = 0x11,
-
-    ILOAD = 0x15,
-    LLOAD,
-    FLOAD,
-    DLOAD,
-    ALOAD,
-    ILOAD_0,
-    ILOAD_1,
-    ILOAD_2,
-    ILOAD_3,
-    LLOAD_0,
-    LLOAD_1,
-    LLOAD_2,
-    LLOAD_3,
-    FLOAD_0,
-    FLOAD_1,
-    FLOAD_2,
-    FLOAD_3,
-    DLOAD_0,
-    DLOAD_1,
-    DLOAD_2,
-    DLOAD_3,
-    ALOAD_0,
-    ALOAD_1,
-    ALOAD_2,
-    ALOAD_3,
-
-    ISTORE = 0x36,
-    LSTORE,
-    FSTORE,
-    DSTORE,
-    ASTORE,
-    ISTORE_0,
-    ISTORE_1,
-    ISTORE_2,
-    ISTORE_3,
-    LSTORE_0,
-    LSTORE_1,
-    LSTORE_2,
-    LSTORE_3,
-    FSTORE_0,
-    FSTORE_1,
-    FSTORE_2,
-    FSTORE_3,
-    DSTORE_0,
-    DSTORE_1,
-    DSTORE_2,
-    DSTORE_3,
-    ASTORE_0,
-    ASTORE_1,
-    ASTORE_2,
-    ASTORE_3,
-
-    POP = 0x57,
-    DUP = 0x59,
-    SWAP = 0x5f,
-
-    IADD = 0x60,
-    LADD,
-    FADD,
-    DADD,
-    ISUB,
-    LSUB,
-    FSUB,
-    DSUB,
-    IMUL,
-    LMUL,
-    FMUL,
-    DMUL,
-    IDIV,
-    LDIV,
-    FDIV,
-    DDIV,
-    IREM,
-    LREM,
-    FREM,
-    DREM,
-    INEG,
-    LNEG,
-    FNEG,
-    DNEG,
-    ISHL,
-    LSHL,
-    ISHR,
-    LSHR,
-    IUSHR,
-    LUSHR,
-    IAND,
-    LAND,
-    IOR,
-    LOR,
-    IXOR,
-    LXOR,
-    I2L,
-    I2F,
-    I2D,
-    L2D,
-    L2I,
-    L2F,
-    F2I,
-    F2L,
-    F2D,
-    D2I,
-    D2L,
-    D2F,
-    I2B,
-    I2C,
-    I2S,
-
-    IRETURN = 0xac,
-    LRETURN,
-    FRETURN,
-    DRETURN,
-    ARETURN,
-
-    NEW = 0xbb,
-    INVOKESTATIC = 0xb8,
-};
+// expansion macro for enum value definition
+#define ENUM_VALUE(name, assign) name assign,
+// expansion macro for enum to string conversion
+#define ENUM_CASE(name, assign) \
+    case name:                  \
+        return #name;
+// declare the access function and define enum values
+#define DECLARE_ENUM(EnumType, ENUM_DEF) \
+    enum EnumType {                      \
+        ENUM_DEF(ENUM_VALUE)             \
+    };
+// define the access function names
+#define DEFINE_ENUM_STRINGER(EnumType, ENUM_DEF) \
+    char const* get_string(enum EnumType value)  \
+    {                                            \
+        switch (value) {                         \
+            ENUM_DEF(ENUM_CASE)                  \
+        default:                                 \
+            return ""; /* handle input error */  \
+        }                                        \
+    }
+#define OPCODE_ENUM(XX)       \
+    XX(NOP, = 0x00)           \
+    XX(ACONST_NULL, = 0x01)   \
+    XX(ICONST_M1, = 0x02)     \
+    XX(ICONST_0, )            \
+    XX(ICONST_1, )            \
+    XX(ICONST_2, )            \
+    XX(ICONST_3, )            \
+    XX(ICONST_4, )            \
+    XX(ICONST_5, )            \
+    XX(LCONST_0, )            \
+    XX(LCONST_1, )            \
+    XX(FCONST_0, )            \
+    XX(FCONST_1, )            \
+    XX(DCONST_0, )            \
+    XX(DCONST_1, )            \
+    XX(BIPUSH, = 0x10)        \
+    XX(SIPUSH, = 0x11)        \
+    XX(ILOAD, = 0x15)         \
+    XX(LLOAD, )               \
+    XX(FLOAD, )               \
+    XX(DLOAD, )               \
+    XX(ALOAD, )               \
+    XX(ILOAD_0, )             \
+    XX(ILOAD_1, )             \
+    XX(ILOAD_2, )             \
+    XX(ILOAD_3, )             \
+    XX(LLOAD_0, )             \
+    XX(LLOAD_1, )             \
+    XX(LLOAD_2, )             \
+    XX(LLOAD_3, )             \
+    XX(FLOAD_0, )             \
+    XX(FLOAD_1, )             \
+    XX(FLOAD_2, )             \
+    XX(FLOAD_3, )             \
+    XX(DLOAD_0, )             \
+    XX(DLOAD_1, )             \
+    XX(DLOAD_2, )             \
+    XX(DLOAD_3, )             \
+    XX(ALOAD_0, )             \
+    XX(ALOAD_1, )             \
+    XX(ALOAD_2, )             \
+    XX(ALOAD_3, )             \
+    XX(ISTORE, = 0x36)        \
+    XX(LSTORE, )              \
+    XX(FSTORE, )              \
+    XX(DSTORE, )              \
+    XX(ASTORE, )              \
+    XX(ISTORE_0, )            \
+    XX(ISTORE_1, )            \
+    XX(ISTORE_2, )            \
+    XX(ISTORE_3, )            \
+    XX(LSTORE_0, )            \
+    XX(LSTORE_1, )            \
+    XX(LSTORE_2, )            \
+    XX(LSTORE_3, )            \
+    XX(FSTORE_0, )            \
+    XX(FSTORE_1, )            \
+    XX(FSTORE_2, )            \
+    XX(FSTORE_3, )            \
+    XX(DSTORE_0, )            \
+    XX(DSTORE_1, )            \
+    XX(DSTORE_2, )            \
+    XX(DSTORE_3, )            \
+    XX(ASTORE_0, )            \
+    XX(ASTORE_1, )            \
+    XX(ASTORE_2, )            \
+    XX(ASTORE_3, )            \
+    XX(POP, = 0x57)           \
+    XX(DUP, = 0x59)           \
+    XX(SWAP, = 0x5f)          \
+    XX(IADD, = 0x60)          \
+    XX(LADD, )                \
+    XX(FADD, )                \
+    XX(DADD, )                \
+    XX(ISUB, )                \
+    XX(LSUB, )                \
+    XX(FSUB, )                \
+    XX(DSUB, )                \
+    XX(IMUL, )                \
+    XX(LMUL, )                \
+    XX(FMUL, )                \
+    XX(DMUL, )                \
+    XX(IDIV, )                \
+    XX(LDIV, )                \
+    XX(FDIV, )                \
+    XX(DDIV, )                \
+    XX(IREM, )                \
+    XX(LREM, )                \
+    XX(FREM, )                \
+    XX(DREM, )                \
+    XX(INEG, )                \
+    XX(LNEG, )                \
+    XX(FNEG, )                \
+    XX(DNEG, )                \
+    XX(ISHL, )                \
+    XX(LSHL, )                \
+    XX(ISHR, )                \
+    XX(LSHR, )                \
+    XX(IUSHR, )               \
+    XX(LUSHR, )               \
+    XX(IAND, )                \
+    XX(LAND, )                \
+    XX(IOR, )                 \
+    XX(LOR, )                 \
+    XX(IXOR, )                \
+    XX(LXOR, )                \
+    XX(I2L, )                 \
+    XX(I2F, )                 \
+    XX(I2D, )                 \
+    XX(L2D, )                 \
+    XX(L2I, )                 \
+    XX(L2F, )                 \
+    XX(F2I, )                 \
+    XX(F2L, )                 \
+    XX(F2D, )                 \
+    XX(D2I, )                 \
+    XX(D2L, )                 \
+    XX(D2F, )                 \
+    XX(I2B, )                 \
+    XX(I2C, )                 \
+    XX(I2S, )                 \
+    XX(IRETURN, = 0xac)       \
+    XX(LRETURN, )             \
+    XX(FRETURN, )             \
+    XX(DRETURN, )             \
+    XX(ARETURN, )             \
+    XX(RETURN, )              \
+    XX(GETSTATIC, = 0xb2)     \
+    XX(PUTSTATIC, )           \
+    XX(GETFIELD, )            \
+    XX(PUTFIELD, )            \
+    XX(INVOKEVIRTUAL, = 0xb6) \
+    XX(INVOKESPECIAL, )       \
+    XX(INVOKESTATIC, )        \
+    XX(NEW, = 0xbb)
+DECLARE_ENUM(opcode, OPCODE_ENUM)
+DEFINE_ENUM_STRINGER(opcode, OPCODE_ENUM)
 
 void print_stack(Value_t* stack, size_t sp)
 {
     debugf("[ ");
     if (sp + 1 != 0)
         for (size_t i = 0; i <= sp; ++i)
-            debugf("0x%016lx ", stack[i].l);
+            switch (stack[i].type) {
+            case I:
+                debugf("I:%d ", stack[i].i);
+                break;
+            case L:
+                debugf("L:%ld ", stack[i].l);
+                break;
+            case F:
+                debugf("F:%f ", stack[i].f);
+                break;
+            case D:
+                debugf("D:%lf ", stack[i].d);
+                break;
+            case A:
+                debugf("A:%p ", stack[i].a);
+                break;
+            case ARR:
+                panicf("unimplemented");
+            }
     debugf("]");
 }
 
@@ -209,34 +235,102 @@ static struct desc_info parse_desc(char const* desc)
 Value_t exec(Frame_t* f);
 Value_t call_method(Class_t* c, Method_t* m, Value_t const* args, size_t nr_args)
 {
-    debugf("Executing function %s\n", m->name);
+    Value_t ret;
+    debugf("Executing function %s.%s (max stack %lu)\n", c->name, m->name, m->max_stack);
 
-    Value_t* locals = malloc(sizeof(Value_t) * m->attrs.list[0].attr_code.max_locals);
-    // to placate valgrind
-    memset(locals, 0, sizeof(Value_t) * m->attrs.list[0].attr_code.max_locals);
+    if (m->flags & ACC_NATIVE) {
+        if (!strcmp(c->name, "java/io/PrintStream") && !strcmp(m->name, "println"))
+            fprintf((FILE*)args[0].a, "%d\n", args[1].i);
+        else if (!strcmp(c->name, "java/lang/Object") && !strcmp(m->name, "<init>")) {
+        }
+    } else {
+        Value_t* locals = malloc(sizeof(Value_t) * m->max_locals);
+        Value_t* stack = malloc(sizeof(Value_t) * m->max_stack);
 
-    Value_t* stack = malloc(sizeof(Value_t) * m->attrs.list[0].attr_code.max_stack);
-    // to placate valgrind
-    memset(stack, 0, sizeof(Value_t) * m->attrs.list[0].attr_code.max_stack);
+#ifndef NDEBUG
+        // to placate valgrind
+        memset(locals, 0, sizeof(Value_t) * m->max_locals);
+        memset(stack, 0, sizeof(Value_t) * m->max_stack);
+#endif
 
-    memmove(locals, args, nr_args * sizeof(args[0]));
+        debugf("nr args: %lu\n", nr_args);
 
-    Frame_t f = {
-        c,
-        0,
-        m->attrs.list[0].attr_code.code,
-        locals,
-        -1,
-        stack,
-    };
-    Value_t ret = exec(&f);
+        memmove(locals, args, nr_args * sizeof(args[0]));
 
-    free(locals);
-    free(stack);
+        Frame_t f = {
+            .class = c,
+            .ip = 0,
+            .code = m->code,
+            .locals = locals,
+            .sp = -1,
+            .stack = stack,
+        };
+        ret = exec(&f);
 
-    debugf("Exiting function %s\n", m->name);
+        free(locals);
+        free(stack);
+    }
+
+    debugf("Exiting function %s.%s\n", c->name, m->name);
 
     return ret;
+}
+
+static inline Value_t makeI(int32_t i)
+{
+    return (Value_t) { .type = I, .i = i };
+}
+static inline Value_t makeL(int64_t l)
+{
+    return (Value_t) { .type = L, .l = l };
+}
+static inline Value_t makeF(float f)
+{
+    return (Value_t) { .type = F, .f = f };
+}
+static inline Value_t makeD(double d)
+{
+    return (Value_t) { .type = D, .d = d };
+}
+static inline Value_t makeA(void* a)
+{
+    return (Value_t) { .type = A, .a = a };
+}
+
+size_t get_size(enum ValueType t)
+{
+    switch (t) {
+    case I:
+    case F:
+        return 4;
+    case L:
+    case D:
+    case A:
+        return 8;
+    case ARR:
+        return 12;
+    default:
+        __builtin_unreachable();
+    }
+}
+enum ValueType get_value_type(char desc)
+{
+    switch (desc) {
+    case 'I':
+        return I;
+    case 'F':
+        return F;
+    case 'J':
+        return L;
+    case 'D':
+        return D;
+    case 'L':
+        return A;
+    case '[':
+        return ARR;
+    default:
+        panicf("wtf");
+    }
 }
 
 Value_t exec(Frame_t* f)
@@ -247,18 +341,19 @@ Value_t exec(Frame_t* f)
     size_t sp = f->sp;
     uint8_t const* code = f->code;
     size_t ip = f->ip;
+
+    print_stack(stack, sp);
+    debugf("\n");
+
     while (1) {
         enum opcode op = (enum opcode)code[ip++];
-
-        debugf("OP:0x%02x Stack: ", op);
-        print_stack(stack, sp);
-        debugf("\n");
+        debugf("%s\n", get_string(op));
 
         switch (op) {
         case NOP:
             break;
         case ACONST_NULL:
-            stack[++sp].a = NULL;
+            stack[++sp] = makeA(NULL);
             break;
         case ICONST_M1:
         case ICONST_0:
@@ -267,32 +362,32 @@ Value_t exec(Frame_t* f)
         case ICONST_3:
         case ICONST_4:
         case ICONST_5:
-            stack[++sp].i = (int32_t)op - (int32_t)ICONST_0;
+            stack[++sp] = makeI((int32_t)op - (int32_t)ICONST_0);
             break;
         case LCONST_0:
-            stack[++sp].l = 0l;
+            stack[++sp] = makeL(0l);
             break;
         case LCONST_1:
-            stack[++sp].l = 1l;
+            stack[++sp] = makeL(1l);
             break;
         case FCONST_0:
-            stack[++sp].f = 0.0f;
+            stack[++sp] = makeF(0.0f);
             break;
         case FCONST_1:
-            stack[++sp].f = 1.0f;
+            stack[++sp] = makeF(1.0f);
             break;
         case DCONST_0:
-            stack[++sp].d = 0.0;
+            stack[++sp] = makeD(0.0);
             break;
         case DCONST_1:
-            stack[++sp].d = 1.0;
+            stack[++sp] = makeD(1.0);
             break;
         case BIPUSH:
-            stack[++sp].i = (int8_t)code[ip];
+            stack[++sp] = makeI((int8_t)code[ip]);
             ip++;
             break;
         case SIPUSH:
-            stack[++sp].i = (int16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            stack[++sp] = makeI((int16_t)u2_from_big_endian(*(uint16_t*)&code[ip]));
             ip += 2;
             break;
         case ILOAD:
@@ -315,61 +410,61 @@ Value_t exec(Frame_t* f)
         case ILOAD_1:
         case ILOAD_2:
         case ILOAD_3:
-            stack[++sp].i = locals[op - ILOAD_0].i;
+            stack[++sp] = locals[op - ILOAD_0];
             break;
         case ISTORE_0:
         case ISTORE_1:
         case ISTORE_2:
         case ISTORE_3:
-            locals[op - ISTORE_0].i = stack[sp--].i;
+            locals[op - ISTORE_0] = stack[sp--];
             break;
         case LLOAD_0:
         case LLOAD_1:
         case LLOAD_2:
         case LLOAD_3:
-            stack[++sp].l = locals[op - LLOAD_0].l;
+            stack[++sp] = locals[op - LLOAD_0];
             break;
         case LSTORE_0:
         case LSTORE_1:
         case LSTORE_2:
         case LSTORE_3:
-            locals[op - LSTORE_0].l = stack[sp--].l;
+            locals[op - LSTORE_0] = stack[sp--];
             break;
         case FLOAD_0:
         case FLOAD_1:
         case FLOAD_2:
         case FLOAD_3:
-            stack[++sp].f = locals[op - FLOAD_0].f;
+            stack[++sp] = locals[op - FLOAD_0];
             break;
         case FSTORE_0:
         case FSTORE_1:
         case FSTORE_2:
         case FSTORE_3:
-            locals[op - FSTORE_0].f = stack[sp--].f;
+            locals[op - FSTORE_0] = stack[sp--];
             break;
         case DLOAD_0:
         case DLOAD_1:
         case DLOAD_2:
         case DLOAD_3:
-            stack[++sp].d = locals[op - DLOAD_0].d;
+            stack[++sp] = locals[op - DLOAD_0];
             break;
         case DSTORE_0:
         case DSTORE_1:
         case DSTORE_2:
         case DSTORE_3:
-            locals[op - DSTORE_0].d = stack[sp--].d;
+            locals[op - DSTORE_0] = stack[sp--];
             break;
         case ALOAD_0:
         case ALOAD_1:
         case ALOAD_2:
         case ALOAD_3:
-            stack[++sp].a = locals[op - ALOAD_0].a;
+            stack[++sp] = locals[op - ALOAD_0];
             break;
         case ASTORE_0:
         case ASTORE_1:
         case ASTORE_2:
         case ASTORE_3:
-            locals[op - ASTORE_0].a = stack[sp--].a;
+            locals[op - ASTORE_0] = stack[sp--];
             break;
         case POP:
             sp--;
@@ -432,7 +527,7 @@ Value_t exec(Frame_t* f)
             default:
                 __builtin_unreachable();
             }
-            stack[sp - 1].i = result;
+            stack[sp - 1] = makeI(result);
             sp--;
         } break;
         case LADD:
@@ -484,7 +579,7 @@ Value_t exec(Frame_t* f)
             default:
                 __builtin_unreachable();
             }
-            stack[sp - 1].l = result;
+            stack[sp - 1] = makeL(result);
             sp--;
         } break;
         case FADD:
@@ -512,7 +607,7 @@ Value_t exec(Frame_t* f)
             default:
                 __builtin_unreachable();
             }
-            stack[sp - 2].f = result;
+            stack[sp - 2] = makeF(result);
             sp--;
         } break;
         case DADD:
@@ -540,7 +635,7 @@ Value_t exec(Frame_t* f)
             default:
                 __builtin_unreachable();
             }
-            stack[sp - 1].d = result;
+            stack[sp - 1] = makeD(result);
             sp--;
         } break;
         case INEG:
@@ -556,61 +651,113 @@ Value_t exec(Frame_t* f)
             stack[sp].d = -stack[sp].d;
             break;
         case I2L:
-            stack[sp].l = (int64_t)stack[sp].i;
+            stack[sp] = makeL((int64_t)stack[sp].i);
             break;
         case I2F:
-            stack[sp].f = (float)stack[sp].i;
+            stack[sp] = makeF((float)stack[sp].i);
             break;
         case I2D:
-            stack[sp].d = (double)stack[sp].i;
+            stack[sp] = makeD((double)stack[sp].i);
             break;
         case L2I:
-            stack[sp].i = (int32_t)stack[sp].l;
+            stack[sp] = makeI((int32_t)stack[sp].l);
             break;
         case L2F:
-            stack[sp].f = (float)stack[sp].l;
+            stack[sp] = makeF((float)stack[sp].l);
             break;
         case L2D:
-            stack[sp].d = (double)stack[sp].l;
+            stack[sp] = makeD((double)stack[sp].l);
             break;
         case F2I:
-            stack[sp].i = (int32_t)stack[sp].f;
+            stack[sp] = makeI((int32_t)stack[sp].f);
             break;
         case F2L:
-            stack[sp].l = (int64_t)stack[sp].f;
+            stack[sp] = makeL((int64_t)stack[sp].f);
             break;
         case F2D:
-            stack[sp].d = (double)stack[sp].f;
+            stack[sp] = makeD((double)stack[sp].f);
             break;
         case D2I:
-            stack[sp].i = (int32_t)stack[sp].d;
+            stack[sp] = makeI((int32_t)stack[sp].d);
             break;
         case D2L:
-            stack[sp].l = (int64_t)stack[sp].d;
+            stack[sp] = makeL((int64_t)stack[sp].d);
             break;
         case D2F:
-            stack[sp].f = (float)stack[sp].d;
+            stack[sp] = makeF((float)stack[sp].d);
             break;
         case I2B:
-            stack[sp].i = (int32_t)((uint32_t)stack[sp].i & 0xff);
+            stack[sp] = makeI((int32_t)((uint32_t)stack[sp].i & 0xff));
             break;
         case I2C:
-            stack[sp].i = (uint32_t)((uint32_t)stack[sp].i & 0xff);
+            stack[sp] = makeI((uint32_t)((uint32_t)stack[sp].i & 0xff));
             break;
         case I2S:
-            stack[sp].i = (int32_t)((uint32_t)stack[sp].i & 0xffff);
+            stack[sp] = makeI((int32_t)((uint32_t)stack[sp].i & 0xffff));
             break;
         case IRETURN:
         case LRETURN:
         case FRETURN:
         case DRETURN:
         case ARETURN:
-            return stack[sp--];
+            return stack[sp];
+        case RETURN:
+            return makeI(0);
+
+        case GETSTATIC: {
+            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            ip += 2;
+            fieldref_t fieldref = resolve_fieldref(constant_pool_list, s);
+            stack[++sp] = fieldref.f->static_val;
+        } break;
+        case PUTSTATIC: {
+            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            ip += 2;
+            fieldref_t fieldref = resolve_fieldref(constant_pool_list, s);
+            fieldref.f->static_val = stack[sp--];
+        } break;
+        case GETFIELD: {
+            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            ip += 2;
+            fieldref_t fieldref = resolve_fieldref(constant_pool_list, s);
+
+            void* a = (uint8_t*)stack[sp].a + fieldref.f->offset;
+            Value_t v = { .type = get_value_type(fieldref.f->desc[0]) };
+            memmove(&v.type + 1, a, get_size(v.type));
+            stack[sp] = v;
+        } break;
+        case PUTFIELD: {
+            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            ip += 2;
+            fieldref_t fieldref = resolve_fieldref(constant_pool_list, s);
+
+            void* a = (uint8_t*)stack[sp - 1].a + fieldref.f->offset;
+            Value_t v = stack[sp];
+            memmove(a, &v.type + 1, get_size(v.type));
+            sp -= 2;
+        } break;
+
         case NEW: {
             size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
             Class_t* c = load_class(resolve_constant(constant_pool_list, s));
-            stack[++sp].a = malloc(c->size);
+            stack[++sp] = makeA(malloc(c->size));
+        } break;
+        case INVOKEVIRTUAL:
+        case INVOKESPECIAL: {
+            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            ip += 2;
+            methodref_t methodref = resolve_methodref(constant_pool_list, s);
+
+            struct desc_info info = parse_desc(methodref.m->desc);
+            info.nr_args++;
+
+            Value_t* args = &stack[sp - info.nr_args + 1];
+
+            Value_t ret = call_method(methodref.c, methodref.m, args, info.nr_args);
+            sp -= info.nr_args;
+            if (info.returns)
+                stack[++sp] = ret;
         } break;
         case INVOKESTATIC: {
             size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
@@ -629,6 +776,9 @@ Value_t exec(Frame_t* f)
         default:
             errorf("Unrecognised opcode 0x%x", op);
         }
+
+        print_stack(stack, sp);
+        debugf("\n");
     }
 }
 
@@ -637,11 +787,12 @@ int main(int argc, char** argv)
     if (argc != 2)
         errorf("Usage: %s <Main class>\n", argv[0]);
 
+    load_init();
+
     Class_t* c = load_class(argv[1]);
     Method_t* main_method = get_method(c, "main");
 
-    Value_t ret = call_method(c, main_method, NULL, 0);
-    printf("%d\n", ret.i);
+    call_method(c, main_method, NULL, 0);
 
     load_end();
 

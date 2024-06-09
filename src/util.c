@@ -4,7 +4,7 @@
 
 void errorf(char const* restrict fmt, ...)
 {
-    fprintf(stderr, "ERROR: ");
+    fprintf(stderr, "\x1b[1;31mERROR: ");
     va_list ap;
     va_start(ap, fmt);
     vfprintf(stderr, fmt, ap);
@@ -16,7 +16,9 @@ void errorf(char const* restrict fmt, ...)
 void vdebugf(char const* restrict fmt, va_list ap)
 {
 #ifndef NDEBUG
+    printf("\x1b[32m");
     vprintf(fmt, ap);
+    printf("\x1b[0m");
 #endif
 }
 void debugf(char const* restrict fmt, ...)

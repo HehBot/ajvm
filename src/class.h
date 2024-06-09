@@ -4,6 +4,29 @@
 #include <stddef.h>
 #include <stdint.h>
 
+typedef struct Value {
+    enum ValueType {
+        I,
+        F,
+        A,
+        L,
+        D,
+        ARR,
+    } type;
+    union {
+        int32_t i;
+        float f;
+        void* a;
+
+        int64_t l;
+        double d;
+        struct {
+            uint32_t len, cap;
+            struct Value* buf;
+        } arr;
+    };
+} Value_t;
+
 typedef struct {
     enum {
         CONST_UTF8 = 0x01,
@@ -21,39 +44,38 @@ typedef struct {
     uint16_t desc_index;
 } Const_t;
 
-enum AttrType {
-    ATTR_CODE,
-    ATTR_SOURCE_FILE,
+typedef struct _Class Class_t;
+
+enum Flags {
+    ACC_STATIC = 0x0008,
+    ACC_NATIVE = 0x0100,
 };
 typedef struct {
-    size_t max_stack, max_locals;
-    size_t code_length;
-    uint8_t* code;
-} AttrCode_t;
-typedef struct {
-    char const* source_file;
-} AttrSourceFile_t;
-typedef struct {
-    enum AttrType type;
-    union {
-        AttrCode_t attr_code;
-        AttrSourceFile_t attr_source_file;
-    };
-} Attr_t;
+    uint16_t flags;
+    char const* name;
+    char const* desc;
 
-typedef struct _Class Class_t;
+    union {
+        size_t offset;
+        Value_t static_val;
+    };
+
+    char const* source_file;
+} Field_t;
 
 typedef struct {
     uint16_t flags;
     char const* name;
     char const* desc;
-    struct {
-        size_t size;
-        Attr_t* list;
-    } attrs;
-} Field_t;
 
-typedef Field_t Method_t;
+    struct {
+        size_t max_stack, max_locals;
+        size_t code_length;
+        uint8_t* code;
+    };
+
+    char const* source_file;
+} Method_t;
 
 struct _Class {
     struct {
@@ -73,7 +95,6 @@ struct _Class {
     struct {
         size_t size;
         Field_t* list;
-        size_t* offset;
         size_t* cp_entry;
     } fields;
     struct {
@@ -81,13 +102,16 @@ struct _Class {
         Method_t* list;
         size_t* cp_entry;
     } methods;
-    struct {
-        size_t size;
-        Attr_t* list;
-    } attrs;
+
+    char const* source_file;
 };
 
 char const* resolve_constant(Const_t* constant_pool_list, size_t i);
+typedef struct {
+    Class_t* c;
+    Field_t* f;
+} fieldref_t;
+fieldref_t resolve_fieldref(Const_t* constant_pool_list, size_t i);
 typedef struct {
     Class_t* c;
     Method_t* m;
@@ -95,6 +119,5 @@ typedef struct {
 methodref_t resolve_methodref(Const_t* constant_pool_list, size_t i);
 
 Method_t* get_method(Class_t* c, char const* methodname);
-Attr_t get_attr(Method_t* m, enum AttrType t);
 
 #endif // CLASS_H
