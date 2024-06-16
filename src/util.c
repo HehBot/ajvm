@@ -2,9 +2,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define BOLD "\x1b[1m"
+#define RED "\x1b[31m"
+#define GREEN "\x1b[32m"
+#define RESET "\x1b[0m"
+
+int debug;
+
 void errorf(char const* restrict fmt, ...)
 {
-    fprintf(stderr, "\x1b[1;31mERROR: ");
+    fprintf(stderr, BOLD RED "ERROR: ");
     va_list ap;
     va_start(ap, fmt);
     vfprintf(stderr, fmt, ap);
@@ -16,9 +23,9 @@ void errorf(char const* restrict fmt, ...)
 void vdebugf(char const* restrict fmt, va_list ap)
 {
 #ifndef NDEBUG
-    printf("\x1b[32m");
+    printf(GREEN);
     vprintf(fmt, ap);
-    printf("\x1b[0m");
+    printf(RESET);
 #endif
 }
 void debugf(char const* restrict fmt, ...)

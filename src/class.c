@@ -20,14 +20,14 @@ char const* resolve_constant(Const_t* constant_pool_list, size_t i)
     }
 }
 
-Field_t* get_field(Class_t* c, char const* fieldname)
+static Field_t* get_field(Class_t* c, char const* fieldname)
 {
     for (size_t i = 0; i < c->fields.size; ++i)
         if (strcmp(c->fields.list[i].name, fieldname) == 0)
             return &c->fields.list[i];
     errorf("unable to find field %s in class %s", fieldname, c->name);
 }
-fieldref_t resolve_fieldref(Const_t* constant_pool_list, size_t i)
+Field_t* resolve_fieldref(Const_t* constant_pool_list, size_t i)
 {
     Const_t* con = &constant_pool_list[i - 1];
     if (con->tag != CONST_FIELD)
@@ -35,9 +35,7 @@ fieldref_t resolve_fieldref(Const_t* constant_pool_list, size_t i)
     char const* classname = resolve_constant(constant_pool_list, con->class_index);
     Class_t* c = load_class(classname);
     char const* fieldname = resolve_constant(constant_pool_list, con->name_and_type_index);
-    Field_t* m = get_field(c, fieldname);
-    fieldref_t mf = { c, m };
-    return mf;
+    return get_field(c, fieldname);
 }
 
 Method_t* get_method(Class_t* c, char const* methodname)

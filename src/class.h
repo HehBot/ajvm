@@ -95,23 +95,17 @@ struct _Class {
     struct {
         size_t size;
         Field_t* list;
-        size_t* cp_entry;
     } fields;
     struct {
         size_t size;
         Method_t* list;
-        size_t* cp_entry;
     } methods;
 
     char const* source_file;
 };
 
 char const* resolve_constant(Const_t* constant_pool_list, size_t i);
-typedef struct {
-    Class_t* c;
-    Field_t* f;
-} fieldref_t;
-fieldref_t resolve_fieldref(Const_t* constant_pool_list, size_t i);
+Field_t* resolve_fieldref(Const_t* constant_pool_list, size_t i);
 typedef struct {
     Class_t* c;
     Method_t* m;

@@ -9,5 +9,10 @@ public class Main {
 
         Add a = new Add(4, 5);
         System.out.println(a.call(7));
+
+        ExtendedAdd b = new ExtendedAdd(9, 10, 11, 12);
+        Add c = b;
+        System.out.println(b.call(13));
+        System.out.println(c.call(13));
     }
 }

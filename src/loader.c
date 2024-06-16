@@ -73,7 +73,7 @@ static Const_t* load_constant_pool(FILE* cf, size_t nr)
             c.desc_index = read_big_endian_u2(cf);
             break;
         default:
-            errorf("Unsupported constant pool tag: %d", c.tag);
+            errorf("unsupported constant pool tag: %d", c.tag);
         }
         list[i] = c;
     }
@@ -100,7 +100,7 @@ static enum AttrType get_attr_type(char const* t)
         return ATTR_CODE;
     if (!strcmp(t, "SourceFile"))
         return ATTR_SOURCE_FILE;
-    errorf("Unknown attribute type: %s\n", t);
+    errorf("unknown attribute type: %s\n", t);
 }
 
 static void load_field_attrs(FILE* cf, Field_t* f, Const_t* constant_pool_list)
@@ -131,14 +131,13 @@ static void load_field_attrs(FILE* cf, Field_t* f, Const_t* constant_pool_list)
 static void load_fields(FILE* cf, Class_t* c)
 {
     size_t nr = read_big_endian_u2(cf);
-    size_t* cp_entry = malloc(sizeof(cp_entry[0]) * nr);
     size_t off = c->super->size;
     Field_t* fields = malloc(sizeof(fields[0]) * nr);
     for (size_t i = 0; i < nr; ++i) {
         Field_t f;
         f.flags = read_big_endian_u2(cf);
-        cp_entry[i] = read_big_endian_u2(cf);
-        f.name = resolve_constant(c->constant_pool.list, cp_entry[i]);
+        size_t cp_entry = read_big_endian_u2(cf);
+        f.name = resolve_constant(c->constant_pool.list, cp_entry);
         f.desc = resolve_constant(c->constant_pool.list, read_big_endian_u2(cf));
         load_field_attrs(cf, &f, c->constant_pool.list);
 
@@ -149,7 +148,6 @@ static void load_fields(FILE* cf, Class_t* c)
     }
     c->fields.list = fields;
     c->fields.size = nr;
-    c->fields.cp_entry = cp_entry;
     c->size = off + c->super->size;
 }
 
@@ -202,19 +200,17 @@ static void load_methods(FILE* cf, Class_t* c)
 {
     size_t nr = read_big_endian_u2(cf);
     Method_t* methods = malloc(sizeof(methods[0]) * nr);
-    size_t* cp_entry = malloc(sizeof(cp_entry[0]) * nr);
     for (size_t i = 0; i < nr; ++i) {
         Method_t m;
         m.flags = read_big_endian_u2(cf);
-        cp_entry[i] = read_big_endian_u2(cf);
-        m.name = resolve_constant(c->constant_pool.list, cp_entry[i]);
+        size_t cp_entry = read_big_endian_u2(cf);
+        m.name = resolve_constant(c->constant_pool.list, cp_entry);
         m.desc = resolve_constant(c->constant_pool.list, read_big_endian_u2(cf));
         load_method_attrs(cf, &m, c->constant_pool.list);
         methods[i] = m;
     }
     c->methods.size = nr;
     c->methods.list = methods;
-    c->methods.cp_entry = cp_entry;
 }
 
 static void __attribute__((format(printf, 2, 3))) indentdebugf(int indent, char const* restrict fmt, ...)
@@ -228,7 +224,9 @@ static void __attribute__((format(printf, 2, 3))) indentdebugf(int indent, char 
 }
 static void print_field(Field_t const* f, size_t indent)
 {
-    indentdebugf(indent, "%s:%s %s\n", f->name, (f->flags & ACC_STATIC ? " [static]" : ""), f->desc);
+    char b[40];
+    sprintf(b, " <+%lu>", f->offset);
+    indentdebugf(indent, "%s:%s %s\n", f->name, (f->flags & ACC_STATIC ? " [static]" : b), f->desc);
 }
 static void print_method(Method_t const* m, size_t indent)
 {
@@ -294,7 +292,7 @@ Class_t* load_class(char const* classname)
     sprintf(filename, "%s.class", classname);
     FILE* cf = fopen(filename, "r");
     if (cf == NULL)
-        errorf("Unable to open file %s for reading", filename);
+        errorf("unable to open file %s for reading", filename);
     uint32_t magic = read_big_endian_u4(cf);
     if (magic != 0xcafebabe)
         errorf("bad magic number 0x%x for class file %s\n", magic, filename);
@@ -319,9 +317,7 @@ Class_t* load_class(char const* classname)
     c->interfaces.list = load_interfaces(cf, c->interfaces.size, c->constant_pool.list);
 
     load_fields(cf, c);
-
     load_methods(cf, c);
-
     load_class_attrs(cf, c);
 
     indentdebugf(1, "======= Loaded %s (classfile '%s' ver. %d.%d) =======\n", c->name, c->source_file, major_version, minor_version);
@@ -346,12 +342,10 @@ static void free_class(Class_t const* c)
     for (size_t i = 0; i < c->fields.size; ++i)
         free_field(&c->fields.list[i]);
     free(c->fields.list);
-    free(c->fields.cp_entry);
 
     for (size_t i = 0; i < c->methods.size; ++i)
         free_method(&c->methods.list[i]);
     free(c->methods.list);
-    free(c->methods.cp_entry);
 
     for (size_t i = 0; i < c->constant_pool.size; ++i)
         if (c->constant_pool.list[i].tag == CONST_UTF8)
@@ -376,21 +370,28 @@ static void init_java_lang_Object(Class_t* c)
         .fields = {
             0,
             NULL,
-            NULL,
         },
-        .methods = { 1, &init, NULL },
+        .methods = { 1, &init },
         .source_file = NULL,
     };
     *c = java_lang_Object;
 }
 static void init_java_lang_System(Class_t* c)
 {
-    static Field_t out = {
-        .flags = ACC_STATIC,
-        .name = "out",
-        .desc = "Ljava/io/PrintStream;",
+    static Field_t streams[] = {
+        {
+            .flags = ACC_STATIC,
+            .name = "out",
+            .desc = "Ljava/io/PrintStream;",
+        },
+        {
+            .flags = ACC_STATIC,
+            .name = "err",
+            .desc = "Ljava/io/PrintStream;",
+        }
     };
-    out.static_val = (Value_t) { .type = A, .a = stdout };
+    streams[0].static_val = (Value_t) { .type = A, .a = stdout };
+    streams[1].static_val = (Value_t) { .type = A, .a = stderr };
     Class_t java_lang_System = {
         .constant_pool = { 0, NULL },
         .name = "java/lang/System",
@@ -399,11 +400,10 @@ static void init_java_lang_System(Class_t* c)
         .size = 0,
         .interfaces = { 0, NULL },
         .fields = {
-            1,
-            &out,
-            NULL,
+            sizeof(streams) / sizeof(streams[0]),
+            streams,
         },
-        .methods = { 0, NULL, NULL },
+        .methods = { 0, NULL },
         .source_file = NULL,
     };
     *c = java_lang_System;
@@ -429,8 +429,8 @@ static void init_java_io_PrintStream(Class_t* c)
         .flags = 0,
         .size = 0,
         .interfaces = { 0, NULL },
-        .fields = { 0, NULL, NULL },
-        .methods = { sizeof(methods) / sizeof(methods[0]), methods, NULL },
+        .fields = { 0, NULL },
+        .methods = { sizeof(methods) / sizeof(methods[0]), methods },
         .source_file = NULL,
     };
     *c = java_io_PrintStream;

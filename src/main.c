@@ -1,5 +1,6 @@
 #include "class.h"
 #include "loader.h"
+#include "opcode.h"
 #include "util.h"
 
 #include <math.h>
@@ -18,167 +19,6 @@ typedef struct {
     size_t sp; // points to top of the stack (-1 for empty stack)
     Value_t* stack;
 } Frame_t;
-
-// expansion macro for enum value definition
-#define ENUM_VALUE(name, assign) name assign,
-// expansion macro for enum to string conversion
-#define ENUM_CASE(name, assign) \
-    case name:                  \
-        return #name;
-// declare the access function and define enum values
-#define DECLARE_ENUM(EnumType, ENUM_DEF) \
-    enum EnumType {                      \
-        ENUM_DEF(ENUM_VALUE)             \
-    };
-// define the access function names
-#define DEFINE_ENUM_STRINGER(EnumType, ENUM_DEF) \
-    char const* get_string(enum EnumType value)  \
-    {                                            \
-        switch (value) {                         \
-            ENUM_DEF(ENUM_CASE)                  \
-        default:                                 \
-            return ""; /* handle input error */  \
-        }                                        \
-    }
-#define OPCODE_ENUM(XX)       \
-    XX(NOP, = 0x00)           \
-    XX(ACONST_NULL, = 0x01)   \
-    XX(ICONST_M1, = 0x02)     \
-    XX(ICONST_0, )            \
-    XX(ICONST_1, )            \
-    XX(ICONST_2, )            \
-    XX(ICONST_3, )            \
-    XX(ICONST_4, )            \
-    XX(ICONST_5, )            \
-    XX(LCONST_0, )            \
-    XX(LCONST_1, )            \
-    XX(FCONST_0, )            \
-    XX(FCONST_1, )            \
-    XX(DCONST_0, )            \
-    XX(DCONST_1, )            \
-    XX(BIPUSH, = 0x10)        \
-    XX(SIPUSH, = 0x11)        \
-    XX(ILOAD, = 0x15)         \
-    XX(LLOAD, )               \
-    XX(FLOAD, )               \
-    XX(DLOAD, )               \
-    XX(ALOAD, )               \
-    XX(ILOAD_0, )             \
-    XX(ILOAD_1, )             \
-    XX(ILOAD_2, )             \
-    XX(ILOAD_3, )             \
-    XX(LLOAD_0, )             \
-    XX(LLOAD_1, )             \
-    XX(LLOAD_2, )             \
-    XX(LLOAD_3, )             \
-    XX(FLOAD_0, )             \
-    XX(FLOAD_1, )             \
-    XX(FLOAD_2, )             \
-    XX(FLOAD_3, )             \
-    XX(DLOAD_0, )             \
-    XX(DLOAD_1, )             \
-    XX(DLOAD_2, )             \
-    XX(DLOAD_3, )             \
-    XX(ALOAD_0, )             \
-    XX(ALOAD_1, )             \
-    XX(ALOAD_2, )             \
-    XX(ALOAD_3, )             \
-    XX(ISTORE, = 0x36)        \
-    XX(LSTORE, )              \
-    XX(FSTORE, )              \
-    XX(DSTORE, )              \
-    XX(ASTORE, )              \
-    XX(ISTORE_0, )            \
-    XX(ISTORE_1, )            \
-    XX(ISTORE_2, )            \
-    XX(ISTORE_3, )            \
-    XX(LSTORE_0, )            \
-    XX(LSTORE_1, )            \
-    XX(LSTORE_2, )            \
-    XX(LSTORE_3, )            \
-    XX(FSTORE_0, )            \
-    XX(FSTORE_1, )            \
-    XX(FSTORE_2, )            \
-    XX(FSTORE_3, )            \
-    XX(DSTORE_0, )            \
-    XX(DSTORE_1, )            \
-    XX(DSTORE_2, )            \
-    XX(DSTORE_3, )            \
-    XX(ASTORE_0, )            \
-    XX(ASTORE_1, )            \
-    XX(ASTORE_2, )            \
-    XX(ASTORE_3, )            \
-    XX(POP, = 0x57)           \
-    XX(DUP, = 0x59)           \
-    XX(SWAP, = 0x5f)          \
-    XX(IADD, = 0x60)          \
-    XX(LADD, )                \
-    XX(FADD, )                \
-    XX(DADD, )                \
-    XX(ISUB, )                \
-    XX(LSUB, )                \
-    XX(FSUB, )                \
-    XX(DSUB, )                \
-    XX(IMUL, )                \
-    XX(LMUL, )                \
-    XX(FMUL, )                \
-    XX(DMUL, )                \
-    XX(IDIV, )                \
-    XX(LDIV, )                \
-    XX(FDIV, )                \
-    XX(DDIV, )                \
-    XX(IREM, )                \
-    XX(LREM, )                \
-    XX(FREM, )                \
-    XX(DREM, )                \
-    XX(INEG, )                \
-    XX(LNEG, )                \
-    XX(FNEG, )                \
-    XX(DNEG, )                \
-    XX(ISHL, )                \
-    XX(LSHL, )                \
-    XX(ISHR, )                \
-    XX(LSHR, )                \
-    XX(IUSHR, )               \
-    XX(LUSHR, )               \
-    XX(IAND, )                \
-    XX(LAND, )                \
-    XX(IOR, )                 \
-    XX(LOR, )                 \
-    XX(IXOR, )                \
-    XX(LXOR, )                \
-    XX(I2L, )                 \
-    XX(I2F, )                 \
-    XX(I2D, )                 \
-    XX(L2D, )                 \
-    XX(L2I, )                 \
-    XX(L2F, )                 \
-    XX(F2I, )                 \
-    XX(F2L, )                 \
-    XX(F2D, )                 \
-    XX(D2I, )                 \
-    XX(D2L, )                 \
-    XX(D2F, )                 \
-    XX(I2B, )                 \
-    XX(I2C, )                 \
-    XX(I2S, )                 \
-    XX(IRETURN, = 0xac)       \
-    XX(LRETURN, )             \
-    XX(FRETURN, )             \
-    XX(DRETURN, )             \
-    XX(ARETURN, )             \
-    XX(RETURN, )              \
-    XX(GETSTATIC, = 0xb2)     \
-    XX(PUTSTATIC, )           \
-    XX(GETFIELD, )            \
-    XX(PUTFIELD, )            \
-    XX(INVOKEVIRTUAL, = 0xb6) \
-    XX(INVOKESPECIAL, )       \
-    XX(INVOKESTATIC, )        \
-    XX(NEW, = 0xbb)
-DECLARE_ENUM(opcode, OPCODE_ENUM)
-DEFINE_ENUM_STRINGER(opcode, OPCODE_ENUM)
-
 void print_stack(Value_t* stack, size_t sp)
 {
     debugf("[ ");
@@ -297,22 +137,6 @@ static inline Value_t makeA(void* a)
     return (Value_t) { .type = A, .a = a };
 }
 
-size_t get_size(enum ValueType t)
-{
-    switch (t) {
-    case I:
-    case F:
-        return 4;
-    case L:
-    case D:
-    case A:
-        return 8;
-    case ARR:
-        return 12;
-    default:
-        __builtin_unreachable();
-    }
-}
 enum ValueType get_value_type(char desc)
 {
     switch (desc) {
@@ -330,6 +154,50 @@ enum ValueType get_value_type(char desc)
         return ARR;
     default:
         panicf("wtf");
+    }
+}
+
+static inline Value_t get_value(void* a, enum ValueType type)
+{
+    switch (type) {
+    case I:
+        return makeI(*(int32_t*)a);
+    case F:
+        return makeF(*(float*)a);
+    case A:
+        return makeA(*(void**)a);
+    case L:
+        return makeL(*(int64_t*)a);
+    case D:
+        return makeD(*(double*)a);
+    case ARR:
+        panicf("unimplemented");
+    default:
+        __builtin_unreachable();
+    }
+}
+static inline void set_value(void* a, Value_t v)
+{
+    switch (v.type) {
+    case I:
+        *(int32_t*)a = v.i;
+        break;
+    case F:
+        *(float*)a = v.f;
+        break;
+    case A:
+        *(void**)a = v.a;
+        break;
+    case L:
+        *(int64_t*)a = v.l;
+        break;
+    case D:
+        *(double*)a = v.d;
+        break;
+    case ARR:
+        panicf("unimplemented");
+    default:
+        __builtin_unreachable();
     }
 }
 
@@ -707,33 +575,30 @@ Value_t exec(Frame_t* f)
         case GETSTATIC: {
             size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
-            fieldref_t fieldref = resolve_fieldref(constant_pool_list, s);
-            stack[++sp] = fieldref.f->static_val;
+            Field_t* f = resolve_fieldref(constant_pool_list, s);
+            stack[++sp] = f->static_val;
         } break;
         case PUTSTATIC: {
             size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
-            fieldref_t fieldref = resolve_fieldref(constant_pool_list, s);
-            fieldref.f->static_val = stack[sp--];
+            Field_t* f = resolve_fieldref(constant_pool_list, s);
+            f->static_val = stack[sp--];
         } break;
         case GETFIELD: {
             size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
-            fieldref_t fieldref = resolve_fieldref(constant_pool_list, s);
+            Field_t* f = resolve_fieldref(constant_pool_list, s);
 
-            void* a = (uint8_t*)stack[sp].a + fieldref.f->offset;
-            Value_t v = { .type = get_value_type(fieldref.f->desc[0]) };
-            memmove(&v.type + 1, a, get_size(v.type));
-            stack[sp] = v;
+            void* a = (uint8_t*)stack[sp].a + f->offset;
+            stack[sp] = get_value(a, get_value_type(f->desc[0]));
         } break;
         case PUTFIELD: {
             size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
-            fieldref_t fieldref = resolve_fieldref(constant_pool_list, s);
+            Field_t* f = resolve_fieldref(constant_pool_list, s);
 
-            void* a = (uint8_t*)stack[sp - 1].a + fieldref.f->offset;
-            Value_t v = stack[sp];
-            memmove(a, &v.type + 1, get_size(v.type));
+            void* a = (uint8_t*)stack[sp - 1].a + f->offset;
+            set_value(a, stack[sp]);
             sp -= 2;
         } break;
 
@@ -774,7 +639,7 @@ Value_t exec(Frame_t* f)
                 stack[++sp] = ret;
         } break;
         default:
-            errorf("Unrecognised opcode 0x%x", op);
+            errorf("unrecognised opcode 0x%x", op);
         }
 
         print_stack(stack, sp);
