@@ -306,16 +306,22 @@ void load_class_attrs(FILE* cf, Class_t* c)
     }
 }
 
+#define CAP 10
 static struct {
     size_t nr, cap;
-    Class_t* list;
+    Class_t** list;
+    size_t nr_head;
 } loaded_classes = { 0, 0, NULL };
 
 Class_t* load_class(char const* classname)
 {
-    for (size_t i = 0; i < loaded_classes.nr; ++i)
-        if (strcmp(loaded_classes.list[i].name, classname) == 0)
-            return &loaded_classes.list[i];
+    for (size_t i = 0; i < loaded_classes.nr - 1; ++i)
+        for (size_t j = 0; j < CAP; ++j)
+            if (strcmp(loaded_classes.list[i][j].name, classname) == 0)
+                return &loaded_classes.list[i][j];
+    for (size_t j = 0; j < loaded_classes.nr_head; ++j)
+        if (strcmp(loaded_classes.list[loaded_classes.nr - 1][j].name, classname) == 0)
+            return &loaded_classes.list[loaded_classes.nr - 1][j];
 
     char* filename = malloc(strlen(classname) + strlen(".class") + 1);
     sprintf(filename, "%s.class", classname);
@@ -329,11 +335,15 @@ Class_t* load_class(char const* classname)
 
     uint16_t minor_version = read_big_endian_u2(cf), major_version = read_big_endian_u2(cf);
 
-    if (loaded_classes.nr == loaded_classes.cap) {
-        loaded_classes.cap = 2 * loaded_classes.cap;
-        loaded_classes.list = realloc(loaded_classes.list, sizeof(loaded_classes.list[0]) * loaded_classes.cap);
+    if (loaded_classes.nr_head == CAP) {
+        if (loaded_classes.nr == loaded_classes.cap) {
+            loaded_classes.cap *= 2;
+            loaded_classes.list = realloc(loaded_classes.list, sizeof(loaded_classes.list[0]) * loaded_classes.cap);
+        }
+        loaded_classes.list[loaded_classes.nr++] = malloc(sizeof(loaded_classes.list[0][0]) * CAP);
+        loaded_classes.nr_head = 0;
     }
-    Class_t* c = &loaded_classes.list[loaded_classes.nr++];
+    Class_t* c = &loaded_classes.list[loaded_classes.nr - 1][loaded_classes.nr_head++];
 
     c->constant_pool.size = read_big_endian_u2(cf) - 1;
     c->constant_pool.list = load_constant_pool(cf, c->constant_pool.size);
@@ -414,7 +424,7 @@ static void init_java_lang_Object(Class_t* c)
     };
     *c = java_lang_Object;
 }
-struct heh {
+struct java_io_PrintStream_object {
     Method_t** vtable;
     FILE* f;
 };
@@ -454,10 +464,15 @@ static void init_java_io_PrintStream(Class_t* c)
     };
     *c = java_io_PrintStream;
 }
+void native_println(void* a, int32_t i)
+{
+    FILE* f = ((struct java_io_PrintStream_object*)a)->f;
+    fprintf(f, "%d\n", i);
+}
 static void init_java_lang_System(Class_t* c)
 {
     Class_t* java_io_PrintStream = load_class("java/io/PrintStream");
-    static struct heh out = { 0 }, err = { 0 };
+    static struct java_io_PrintStream_object out = { 0 }, err = { 0 };
     out.vtable = java_io_PrintStream->vtable;
     out.f = stdout;
     err.vtable = java_io_PrintStream->vtable;
@@ -501,17 +516,33 @@ static void init_java_lang_System(Class_t* c)
 }
 void load_init()
 {
-    loaded_classes.cap = 20;
+    loaded_classes.cap = 1;
     loaded_classes.list = malloc(sizeof(loaded_classes.list[0]) * loaded_classes.cap);
-    loaded_classes.nr = 3;
-    init_java_lang_Object(&loaded_classes.list[0]);
-    init_java_io_PrintStream(&loaded_classes.list[1]);
+
+    loaded_classes.nr = 1;
+    loaded_classes.list[0] = malloc(sizeof(loaded_classes.list[0][0]) * CAP);
+
+    loaded_classes.nr_head = 3;
+
+    init_java_lang_Object(&loaded_classes.list[0][0]);
+    init_java_io_PrintStream(&loaded_classes.list[0][1]);
     // load java/lang/System AFTER java/io/PrintStream as former depends on latter
-    init_java_lang_System(&loaded_classes.list[2]);
+    init_java_lang_System(&loaded_classes.list[0][2]);
 }
 void load_end()
 {
-    for (size_t i = 3; i < loaded_classes.nr; ++i)
-        free_class(&loaded_classes.list[i]);
+    for (size_t j = 3; j < (loaded_classes.nr == 1 ? loaded_classes.nr_head : CAP); ++j)
+        free_class(&loaded_classes.list[0][j]);
+    free(loaded_classes.list[0]);
+    if (loaded_classes.nr > 1) {
+        for (size_t i = 1; i < loaded_classes.nr - 1; ++i) {
+            for (size_t j = 0; j < CAP; ++j)
+                free_class(&loaded_classes.list[i][j]);
+            free(loaded_classes.list[i]);
+        }
+        for (size_t j = 0; j < loaded_classes.nr_head; ++j)
+            free_class(&loaded_classes.list[loaded_classes.nr - 1][j]);
+        free(loaded_classes.list[loaded_classes.nr - 1]);
+    }
     free(loaded_classes.list);
 }

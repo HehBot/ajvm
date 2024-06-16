@@ -80,13 +80,9 @@ Value_t call_method(Method_t* m, Value_t const* args, size_t nr_args)
     debugfc(BOLD YELLOW, "Entering function %s.%s (max stack %lu)\n", m->c->name, m->name, m->max_stack);
 
     if (m->flags & ACC_NATIVE) {
-        if (!strcmp(m->c->name, "java/io/PrintStream") && !strcmp(m->name, "println")) {
-            struct heh {
-                Method_t** vtable;
-                FILE* f;
-            };
-            fprintf(((struct heh*)args[0].a)->f, "%d\n", args[1].i);
-        } else if (!strcmp(m->c->name, "java/lang/Object") && !strcmp(m->name, "<init>")) {
+        if (!strcmp(m->c->name, "java/io/PrintStream") && !strcmp(m->name, "println"))
+            native_println(args[0].a, args[1].i);
+        else if (!strcmp(m->c->name, "java/lang/Object") && !strcmp(m->name, "<init>")) {
         }
     } else {
         Value_t* locals = malloc(sizeof(Value_t) * m->max_locals);
