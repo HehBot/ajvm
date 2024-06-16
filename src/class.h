@@ -64,7 +64,7 @@ enum Flags {
     ACC_STATIC = 0x0008,
     ACC_NATIVE = 0x0100,
 };
-typedef struct {
+typedef struct Field {
     uint16_t flags;
     char const* name;
     char const* desc;
@@ -77,7 +77,7 @@ typedef struct {
     char const* source_file;
 } Field_t;
 
-typedef struct {
+typedef struct Method {
     uint16_t flags;
     char const* name;
     char const* desc;

@@ -1,5 +1,6 @@
 #include "class.h"
 #include "loader.h"
+#include "native.h"
 #include "opcode.h"
 #include "util.h"
 
@@ -78,21 +79,28 @@ static struct desc_info parse_desc(char const* desc)
     return info;
 }
 
+Value_t native(Method_t* m, Value_t const* args, size_t nr_args)
+{
+    Value_t ret = { 0 };
+    if (!strcmp(m->c->name, "java/io/PrintStream") && !strcmp(m->name, "println")) {
+        if (!strcmp(m->desc, "(I)V"))
+            native_println_I(args[0].a, args[1].i);
+        else if (!strcmp(m->desc, "(D)V"))
+            native_println_D(args[0].a, args[1].d);
+    } else if (!strcmp(m->c->name, "java/lang/Object") && !strcmp(m->name, "<init>")) {
+    }
+    return ret;
+}
+
 Value_t exec(Frame_t* f);
 Value_t call_method(Method_t* m, Value_t const* args, size_t nr_args)
 {
     Value_t ret;
     debugfc(BOLD YELLOW, "Entering function %s.%s\n", m->c->name, m->name);
 
-    if (m->flags & ACC_NATIVE) {
-        if (!strcmp(m->c->name, "java/io/PrintStream") && !strcmp(m->name, "println")) {
-            if (!strcmp(m->desc, "(I)V"))
-                native_println_I(args[0].a, args[1].i);
-            else if (!strcmp(m->desc, "(D)V"))
-                native_println_D(args[0].a, args[1].d);
-        } else if (!strcmp(m->c->name, "java/lang/Object") && !strcmp(m->name, "<init>")) {
-        }
-    } else {
+    if (m->flags & ACC_NATIVE)
+        ret = native(m, args, nr_args);
+    else {
         Value_t* locals = malloc(sizeof(Value_t) * m->max_locals);
         Value_t* stack = malloc(sizeof(Value_t) * m->max_stack);
 
