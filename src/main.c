@@ -3,6 +3,7 @@
 #include "opcode.h"
 #include "util.h"
 
+#include <argp.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,29 +22,29 @@ typedef struct {
 } Frame_t;
 void print_stack(Value_t* stack, size_t sp)
 {
-    debugf("[ ");
+    debugfc(BOLD BLUE, "[ ");
     if (sp + 1 != 0)
         for (size_t i = 0; i <= sp; ++i)
             switch (stack[i].type) {
             case I:
-                debugf("I:%d ", stack[i].i);
+                debugfc(BOLD BLUE, "I:%d ", stack[i].i);
                 break;
             case L:
-                debugf("L:%ld ", stack[i].l);
+                debugfc(BOLD BLUE, "L:%ld ", stack[i].l);
                 break;
             case F:
-                debugf("F:%f ", stack[i].f);
+                debugfc(BOLD BLUE, "F:%f ", stack[i].f);
                 break;
             case D:
-                debugf("D:%lf ", stack[i].d);
+                debugfc(BOLD BLUE, "D:%lf ", stack[i].d);
                 break;
             case A:
-                debugf("A:%p ", stack[i].a);
+                debugfc(BOLD BLUE, "A:%p ", stack[i].a);
                 break;
             case ARR:
                 panicf("unimplemented");
             }
-    debugf("]");
+    debugfc(BOLD BLUE, "]");
 }
 
 struct desc_info {
@@ -76,7 +77,7 @@ Value_t exec(Frame_t* f);
 Value_t call_method(Class_t* c, Method_t* m, Value_t const* args, size_t nr_args)
 {
     Value_t ret;
-    debugf("Executing function %s.%s (max stack %lu)\n", c->name, m->name, m->max_stack);
+    debugfc(BOLD YELLOW, "Entering function %s.%s (max stack %lu)\n", c->name, m->name, m->max_stack);
 
     if (m->flags & ACC_NATIVE) {
         if (!strcmp(c->name, "java/io/PrintStream") && !strcmp(m->name, "println"))
@@ -111,7 +112,7 @@ Value_t call_method(Class_t* c, Method_t* m, Value_t const* args, size_t nr_args
         free(stack);
     }
 
-    debugf("Exiting function %s.%s\n", c->name, m->name);
+    debugfc(BOLD YELLOW, "Exiting function %s.%s\n", c->name, m->name);
 
     return ret;
 }
@@ -649,12 +650,11 @@ Value_t exec(Frame_t* f)
 
 int main(int argc, char** argv)
 {
-    if (argc != 2)
-        errorf("Usage: %s <Main class>\n", argv[0]);
+    struct cmd_args cmd_args = parse_cmd_args(argc, argv);
 
     load_init();
 
-    Class_t* c = load_class(argv[1]);
+    Class_t* c = load_class(cmd_args.main_class);
     Method_t* main_method = get_method(c, "main");
 
     call_method(c, main_method, NULL, 0);
