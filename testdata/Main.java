@@ -16,5 +16,9 @@ public class Main {
         System.out.println(c.call(13));
 
         System.out.println(3.1415);
+        if (b.call(13) == 56)
+            System.out.println(9);
+        else
+            System.out.println(10);
     }
 }

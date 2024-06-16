@@ -279,6 +279,9 @@ Value_t exec(Frame_t* f)
         case FCONST_1:
             stack[++sp] = makeF(1.0f);
             break;
+        case FCONST_2:
+            stack[++sp] = makeF(2.0f);
+            break;
         case DCONST_0:
             stack[++sp] = makeD(0.0);
             break;
@@ -611,6 +614,100 @@ Value_t exec(Frame_t* f)
         case I2S:
             stack[sp] = makeI((int32_t)((uint32_t)stack[sp].i & 0xffff));
             break;
+        case LCMP:
+            stack[sp - 1] = makeI(stack[sp - 1].l > stack[sp].l ? 1 : stack[sp - 1].l < stack[sp].l ? -1
+                                                                                                    : 0);
+            sp--;
+            break;
+        case FCMPL:
+        case FCMPG:
+            stack[sp - 1] = makeI(stack[sp - 1].f > stack[sp].f ? 1 : stack[sp - 1].f < stack[sp].f ? -1
+                                                                                                    : 0);
+            sp--;
+            break;
+        case DCMPL:
+        case DCMPG:
+            stack[sp - 1] = makeI(stack[sp - 1].d > stack[sp].d ? 1 : stack[sp - 1].d < stack[sp].d ? -1
+                                                                                                    : 0);
+            sp--;
+            break;
+        case IFEQ:
+        case IFNE:
+        case IFLT:
+        case IFGE:
+        case IFGT:
+        case IFLE:
+        case IF_ICMPEQ:
+        case IF_ICMPNE:
+        case IF_ICMPLT:
+        case IF_ICMPGE:
+        case IF_ICMPGT:
+        case IF_ICMPLE:
+        case IF_ACMPEQ:
+        case IF_ACMPNE:
+        case GOTO: {
+            ssize_t off = (int16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            ip += 2;
+            int branch = 0;
+            switch (op) {
+            case IFEQ:
+                branch = (stack[sp--].i == 0);
+                break;
+            case IFNE:
+                branch = (stack[sp--].i != 0);
+                break;
+            case IFLT:
+                branch = (stack[sp--].i < 0);
+                break;
+            case IFGE:
+                branch = (stack[sp--].i >= 0);
+                break;
+            case IFGT:
+                branch = (stack[sp--].i > 0);
+                break;
+            case IFLE:
+                branch = (stack[sp--].i <= 0);
+                break;
+            case IF_ICMPEQ:
+                branch = (stack[sp - 1].i == stack[sp].i);
+                sp -= 2;
+                break;
+            case IF_ICMPNE:
+                branch = (stack[sp - 1].i != stack[sp].i);
+                sp -= 2;
+                break;
+            case IF_ICMPLT:
+                branch = (stack[sp - 1].i < stack[sp].i);
+                sp -= 2;
+                break;
+            case IF_ICMPGE:
+                branch = (stack[sp - 1].i >= stack[sp].i);
+                sp -= 2;
+                break;
+            case IF_ICMPGT:
+                branch = (stack[sp - 1].i > stack[sp].i);
+                sp -= 2;
+                break;
+            case IF_ICMPLE:
+                branch = (stack[sp - 1].i <= stack[sp].i);
+                sp -= 2;
+                break;
+            case IF_ACMPEQ:
+                branch = (stack[sp - 1].a == stack[sp].a);
+                sp -= 2;
+                break;
+            case IF_ACMPNE:
+                branch = (stack[sp - 1].a != stack[sp].a);
+                sp -= 2;
+                break;
+            case GOTO:
+                break;
+            default:
+                __builtin_unreachable();
+            }
+            if (branch)
+                ip += off - 3; // 3 bytes: 1 for opcode and 2 for offset
+        } break;
         case IRETURN:
         case LRETURN:
         case FRETURN:
@@ -621,19 +718,19 @@ Value_t exec(Frame_t* f)
             return makeI(0);
 
         case GETSTATIC: {
-            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            size_t s = u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
             Field_t* f = resolve_fieldref(constant_pool_list, s);
             stack[++sp] = f->static_val;
         } break;
         case PUTSTATIC: {
-            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            size_t s = u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
             Field_t* f = resolve_fieldref(constant_pool_list, s);
             f->static_val = stack[sp--];
         } break;
         case GETFIELD: {
-            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            size_t s = u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
             Field_t* f = resolve_fieldref(constant_pool_list, s);
 
@@ -641,7 +738,7 @@ Value_t exec(Frame_t* f)
             stack[sp] = get_value(a, get_value_type(f->desc[0]));
         } break;
         case PUTFIELD: {
-            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            size_t s = u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
             Field_t* f = resolve_fieldref(constant_pool_list, s);
 
@@ -651,7 +748,7 @@ Value_t exec(Frame_t* f)
         } break;
 
         case NEW: {
-            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            size_t s = u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
             Class_t* c = load_class(resolve_class(constant_pool_list, s));
             Value_t v = makeA(malloc(c->size));
@@ -659,7 +756,7 @@ Value_t exec(Frame_t* f)
             stack[++sp] = v;
         } break;
         case INVOKEVIRTUAL: {
-            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            size_t s = u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
 
             Method_t* m = resolve_methodref(constant_pool_list, s);
@@ -678,7 +775,7 @@ Value_t exec(Frame_t* f)
                 stack[++sp] = ret;
         } break;
         case INVOKESPECIAL: {
-            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            size_t s = u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
             Method_t* m = resolve_methodref(constant_pool_list, s);
 
@@ -693,7 +790,7 @@ Value_t exec(Frame_t* f)
                 stack[++sp] = ret;
         } break;
         case INVOKESTATIC: {
-            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            size_t s = u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
             Method_t* m = resolve_methodref(constant_pool_list, s);
 

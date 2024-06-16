@@ -40,10 +40,10 @@ case name:                      \
     XX(DCONST_0, )            \
     XX(DCONST_1, )            \
     XX(BIPUSH, = 0x10)        \
-    XX(SIPUSH, = 0x11)        \
+    XX(SIPUSH, )              \
     XX(LDC, = 0x12)           \
-    XX(LDC_W, = 0x13)         \
-    XX(LDC2_W, = 0x14)        \
+    XX(LDC_W, )               \
+    XX(LDC2_W, )              \
     XX(ILOAD, = 0x15)         \
     XX(LLOAD, )               \
     XX(FLOAD, )               \
@@ -148,6 +148,26 @@ case name:                      \
     XX(I2B, )                 \
     XX(I2C, )                 \
     XX(I2S, )                 \
+    XX(LCMP, = 0x94)          \
+    XX(FCMPL, )               \
+    XX(FCMPG, )               \
+    XX(DCMPL, )               \
+    XX(DCMPG, )               \
+    XX(IFEQ, = 0x99)          \
+    XX(IFNE, )                \
+    XX(IFLT, )                \
+    XX(IFGE, )                \
+    XX(IFGT, )                \
+    XX(IFLE, )                \
+    XX(IF_ICMPEQ, )           \
+    XX(IF_ICMPNE, )           \
+    XX(IF_ICMPLT, )           \
+    XX(IF_ICMPGE, )           \
+    XX(IF_ICMPGT, )           \
+    XX(IF_ICMPLE, )           \
+    XX(IF_ACMPEQ, )           \
+    XX(IF_ACMPNE, )           \
+    XX(GOTO, )                \
     XX(IRETURN, = 0xac)       \
     XX(LRETURN, )             \
     XX(FRETURN, )             \
