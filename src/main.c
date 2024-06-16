@@ -74,32 +74,38 @@ static struct desc_info parse_desc(char const* desc)
 }
 
 Value_t exec(Frame_t* f);
-Value_t call_method(Class_t* c, Method_t* m, Value_t const* args, size_t nr_args)
+Value_t call_method(Method_t* m, Value_t const* args, size_t nr_args)
 {
     Value_t ret;
-    debugfc(BOLD YELLOW, "Entering function %s.%s (max stack %lu)\n", c->name, m->name, m->max_stack);
+    debugfc(BOLD YELLOW, "Entering function %s.%s (max stack %lu)\n", m->c->name, m->name, m->max_stack);
 
     if (m->flags & ACC_NATIVE) {
-        if (!strcmp(c->name, "java/io/PrintStream") && !strcmp(m->name, "println"))
-            fprintf((FILE*)args[0].a, "%d\n", args[1].i);
-        else if (!strcmp(c->name, "java/lang/Object") && !strcmp(m->name, "<init>")) {
+        if (!strcmp(m->c->name, "java/io/PrintStream") && !strcmp(m->name, "println")) {
+            struct heh {
+                Method_t** vtable;
+                FILE* f;
+            };
+            fprintf(((struct heh*)args[0].a)->f, "%d\n", args[1].i);
+        } else if (!strcmp(m->c->name, "java/lang/Object") && !strcmp(m->name, "<init>")) {
         }
     } else {
         Value_t* locals = malloc(sizeof(Value_t) * m->max_locals);
         Value_t* stack = malloc(sizeof(Value_t) * m->max_stack);
 
-#ifndef NDEBUG
         // to placate valgrind
-        memset(locals, 0, sizeof(Value_t) * m->max_locals);
-        memset(stack, 0, sizeof(Value_t) * m->max_stack);
-#endif
+        {
+            extern int debug;
+            if (debug) {
+                memset(locals, 0, sizeof(Value_t) * m->max_locals);
+                memset(stack, 0, sizeof(Value_t) * m->max_stack);
+            }
+        }
 
-        debugf("nr args: %lu\n", nr_args);
-
+        debugfc(BOLD YELLOW, "nr args: %lu\n", nr_args);
         memmove(locals, args, nr_args * sizeof(args[0]));
 
         Frame_t f = {
-            .class = c,
+            .class = m->c,
             .ip = 0,
             .code = m->code,
             .locals = locals,
@@ -112,7 +118,7 @@ Value_t call_method(Class_t* c, Method_t* m, Value_t const* args, size_t nr_args
         free(stack);
     }
 
-    debugfc(BOLD YELLOW, "Exiting function %s.%s\n", c->name, m->name);
+    debugfc(BOLD YELLOW, "Exiting function %s.%s\n", m->c->name, m->name);
 
     return ret;
 }
@@ -607,20 +613,40 @@ Value_t exec(Frame_t* f)
             size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
             Class_t* c = load_class(resolve_constant(constant_pool_list, s));
-            stack[++sp] = makeA(malloc(c->size));
+            Value_t v = makeA(malloc(c->size));
+            *(Method_t***)v.a = c->vtable;
+            stack[++sp] = v;
         } break;
-        case INVOKEVIRTUAL:
-        case INVOKESPECIAL: {
+        case INVOKEVIRTUAL: {
             size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
-            methodref_t methodref = resolve_methodref(constant_pool_list, s);
 
-            struct desc_info info = parse_desc(methodref.m->desc);
+            Method_t* m = resolve_methodref(constant_pool_list, s);
+
+            struct desc_info info = parse_desc(m->desc);
             info.nr_args++;
 
             Value_t* args = &stack[sp - info.nr_args + 1];
 
-            Value_t ret = call_method(methodref.c, methodref.m, args, info.nr_args);
+            // vtabe lookup
+            m = (*(Method_t***)args[0].a)[m->vtable_offset];
+
+            Value_t ret = call_method(m, args, info.nr_args);
+            sp -= info.nr_args;
+            if (info.returns)
+                stack[++sp] = ret;
+        } break;
+        case INVOKESPECIAL: {
+            size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
+            ip += 2;
+            Method_t* m = resolve_methodref(constant_pool_list, s);
+
+            struct desc_info info = parse_desc(m->desc);
+            info.nr_args++;
+
+            Value_t* args = &stack[sp - info.nr_args + 1];
+
+            Value_t ret = call_method(m, args, info.nr_args);
             sp -= info.nr_args;
             if (info.returns)
                 stack[++sp] = ret;
@@ -628,13 +654,13 @@ Value_t exec(Frame_t* f)
         case INVOKESTATIC: {
             size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
-            methodref_t methodref = resolve_methodref(constant_pool_list, s);
+            Method_t* m = resolve_methodref(constant_pool_list, s);
 
-            struct desc_info info = parse_desc(methodref.m->desc);
+            struct desc_info info = parse_desc(m->desc);
 
             Value_t* args = &stack[sp - info.nr_args + 1];
 
-            Value_t ret = call_method(methodref.c, methodref.m, args, info.nr_args);
+            Value_t ret = call_method(m, args, info.nr_args);
             sp -= info.nr_args;
             if (info.returns)
                 stack[++sp] = ret;
@@ -657,7 +683,7 @@ int main(int argc, char** argv)
     Class_t* c = load_class(cmd_args.main_class);
     Method_t* main_method = get_method(c, "main");
 
-    call_method(c, main_method, NULL, 0);
+    call_method(main_method, NULL, 0);
 
     load_end();
 

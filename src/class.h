@@ -74,6 +74,9 @@ typedef struct {
         uint8_t* code;
     };
 
+    Class_t* c;
+    size_t vtable_offset;
+
     char const* source_file;
 } Method_t;
 
@@ -101,16 +104,14 @@ struct _Class {
         Method_t* list;
     } methods;
 
+    Method_t** vtable; // NULL-terminated
+
     char const* source_file;
 };
 
 char const* resolve_constant(Const_t* constant_pool_list, size_t i);
 Field_t* resolve_fieldref(Const_t* constant_pool_list, size_t i);
-typedef struct {
-    Class_t* c;
-    Method_t* m;
-} methodref_t;
-methodref_t resolve_methodref(Const_t* constant_pool_list, size_t i);
+Method_t* resolve_methodref(Const_t* constant_pool_list, size_t i);
 
 Method_t* get_method(Class_t* c, char const* methodname);
 

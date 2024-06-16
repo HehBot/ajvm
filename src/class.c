@@ -45,7 +45,7 @@ Method_t* get_method(Class_t* c, char const* methodname)
             return &c->methods.list[i];
     errorf("unable to find method %s in class %s", methodname, c->name);
 }
-methodref_t resolve_methodref(Const_t* constant_pool_list, size_t i)
+Method_t* resolve_methodref(Const_t* constant_pool_list, size_t i)
 {
     Const_t* con = &constant_pool_list[i - 1];
     if (con->tag != CONST_METHOD)
@@ -53,7 +53,5 @@ methodref_t resolve_methodref(Const_t* constant_pool_list, size_t i)
     char const* classname = resolve_constant(constant_pool_list, con->class_index);
     Class_t* c = load_class(classname);
     char const* methodname = resolve_constant(constant_pool_list, con->name_and_type_index);
-    Method_t* m = get_method(c, methodname);
-    methodref_t mf = { c, m };
-    return mf;
+    return get_method(c, methodname);
 }

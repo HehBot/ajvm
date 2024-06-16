@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static int debug = 0;
+int debug = 0;
 
 void errorf(char const* restrict fmt, ...)
 {

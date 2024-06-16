@@ -55,7 +55,6 @@ static Const_t* load_constant_pool(FILE* cf, size_t nr)
         case CONST_UTF8: {
             size_t l = read_big_endian_u2(cf);
             c.string = bytes(cf, l, 1);
-            // indentdebugf("%lu \"%s\"\n", i, c.string);
         } break;
         case CONST_CLASS:
             c.name_index = read_big_endian_u2(cf);
@@ -148,7 +147,7 @@ static void load_fields(FILE* cf, Class_t* c)
     }
     c->fields.list = fields;
     c->fields.size = nr;
-    c->size = off + c->super->size;
+    c->size = off;
 }
 
 static void load_method_attrs(FILE* cf, Method_t* m, Const_t* constant_pool_list)
@@ -211,6 +210,36 @@ static void load_methods(FILE* cf, Class_t* c)
     }
     c->methods.size = nr;
     c->methods.list = methods;
+
+    size_t nr_vtable = 0;
+    for (size_t i = 0; c->super->vtable[i] != NULL; ++i)
+        nr_vtable++;
+    size_t cap_vtable = nr_vtable + 1 + nr;
+    Method_t** vtable = malloc(sizeof(vtable[0]) * cap_vtable);
+    memcpy(vtable, c->super->vtable, sizeof(vtable[0]) * (nr_vtable + 1));
+
+    for (size_t i = 0; i < nr; ++i) {
+        methods[i].c = c;
+        if (methods[i].name[0] == '<')
+            continue;
+        int found = 0;
+        for (size_t j = 0; c->super->vtable[j] != NULL; ++j) {
+            if (strcmp(c->super->vtable[j]->desc, methods[i].desc) == 0
+                && strcmp(c->super->vtable[j]->name, methods[i].name) == 0) {
+                found = 1;
+                vtable[j] = &methods[i];
+                methods[i].vtable_offset = j;
+                break;
+            }
+        }
+        if (!found) {
+            vtable[nr_vtable] = &methods[i];
+            methods[i].vtable_offset = nr_vtable;
+            vtable[nr_vtable + 1] = NULL;
+            nr_vtable++;
+        }
+    }
+    c->vtable = realloc(vtable, sizeof(vtable[0]) * (nr_vtable + 1));
 }
 
 static void __attribute__((format(printf, 2, 3))) indentdebugf(int indent, char const* restrict fmt, ...)
@@ -343,6 +372,8 @@ static void free_class(Class_t const* c)
         free_field(&c->fields.list[i]);
     free(c->fields.list);
 
+    free(c->vtable);
+
     for (size_t i = 0; i < c->methods.size; ++i)
         free_method(&c->methods.list[i]);
     free(c->methods.list);
@@ -360,54 +391,33 @@ static void init_java_lang_Object(Class_t* c)
         .name = "<init>",
         .desc = "()V",
     };
+    init.c = c;
+
+    static Method_t* vtable[] = { NULL };
+
     Class_t java_lang_Object = {
         .constant_pool = { 0, NULL },
         .name = "java/lang/Object",
         .super = NULL,
         .flags = 0,
-        .size = 0,
+        .size = sizeof(&vtable[0]),
         .interfaces = { 0, NULL },
         .fields = {
             0,
             NULL,
         },
         .methods = { 1, &init },
+
+        .vtable = &vtable[0],
+
         .source_file = NULL,
     };
     *c = java_lang_Object;
 }
-static void init_java_lang_System(Class_t* c)
-{
-    static Field_t streams[] = {
-        {
-            .flags = ACC_STATIC,
-            .name = "out",
-            .desc = "Ljava/io/PrintStream;",
-        },
-        {
-            .flags = ACC_STATIC,
-            .name = "err",
-            .desc = "Ljava/io/PrintStream;",
-        }
-    };
-    streams[0].static_val = (Value_t) { .type = A, .a = stdout };
-    streams[1].static_val = (Value_t) { .type = A, .a = stderr };
-    Class_t java_lang_System = {
-        .constant_pool = { 0, NULL },
-        .name = "java/lang/System",
-        .super = NULL,
-        .flags = 0,
-        .size = 0,
-        .interfaces = { 0, NULL },
-        .fields = {
-            sizeof(streams) / sizeof(streams[0]),
-            streams,
-        },
-        .methods = { 0, NULL },
-        .source_file = NULL,
-    };
-    *c = java_lang_System;
-}
+struct heh {
+    Method_t** vtable;
+    FILE* f;
+};
 static void init_java_io_PrintStream(Class_t* c)
 {
     static Method_t methods[] = {
@@ -420,29 +430,84 @@ static void init_java_io_PrintStream(Class_t* c)
             .flags = ACC_NATIVE,
             .name = "println",
             .desc = "(I)V",
+            .vtable_offset = 0,
         }
     };
+    methods[0].c = c;
+    methods[1].c = c;
+
+    static Method_t* vtable[] = { &methods[1], NULL };
+
     Class_t java_io_PrintStream = {
         .constant_pool = { 0, NULL },
         .name = "java/io/PrintStream",
         .super = NULL,
         .flags = 0,
-        .size = 0,
+        .size = sizeof(&vtable[0]),
         .interfaces = { 0, NULL },
         .fields = { 0, NULL },
         .methods = { sizeof(methods) / sizeof(methods[0]), methods },
+
+        .vtable = &vtable[0],
+
         .source_file = NULL,
     };
     *c = java_io_PrintStream;
 }
+static void init_java_lang_System(Class_t* c)
+{
+    Class_t* java_io_PrintStream = load_class("java/io/PrintStream");
+    static struct heh out = { 0 }, err = { 0 };
+    out.vtable = java_io_PrintStream->vtable;
+    out.f = stdout;
+    err.vtable = java_io_PrintStream->vtable;
+    err.f = stderr;
+
+    static Field_t streams[] = {
+        {
+            .flags = ACC_STATIC,
+            .name = "out",
+            .desc = "Ljava/io/PrintStream;",
+        },
+        {
+            .flags = ACC_STATIC,
+            .name = "err",
+            .desc = "Ljava/io/PrintStream;",
+        }
+    };
+    streams[0].static_val = (Value_t) { .type = A, .a = &out };
+    streams[1].static_val = (Value_t) { .type = A, .a = &err };
+
+    static Method_t* vtable[] = { NULL };
+
+    Class_t java_lang_System = {
+        .constant_pool = { 0, NULL },
+        .name = "java/lang/System",
+        .super = NULL,
+        .flags = 0,
+        .size = sizeof(&vtable[0]),
+        .interfaces = { 0, NULL },
+        .fields = {
+            sizeof(streams) / sizeof(streams[0]),
+            streams,
+        },
+        .methods = { 0, NULL },
+
+        .vtable = &vtable[0],
+
+        .source_file = NULL,
+    };
+    *c = java_lang_System;
+}
 void load_init()
 {
-    loaded_classes.cap = 3;
+    loaded_classes.cap = 20;
     loaded_classes.list = malloc(sizeof(loaded_classes.list[0]) * loaded_classes.cap);
     loaded_classes.nr = 3;
     init_java_lang_Object(&loaded_classes.list[0]);
-    init_java_lang_System(&loaded_classes.list[1]);
-    init_java_io_PrintStream(&loaded_classes.list[2]);
+    init_java_io_PrintStream(&loaded_classes.list[1]);
+    // load java/lang/System AFTER java/io/PrintStream as former depends on latter
+    init_java_lang_System(&loaded_classes.list[2]);
 }
 void load_end()
 {
