@@ -28,20 +28,34 @@ typedef struct Value {
 } Value_t;
 
 typedef struct {
-    enum {
+    enum ConstType {
         CONST_UTF8 = 0x01,
+        CONST_INT = 0x03,
+        CONST_FLOAT = 0x04,
+        CONST_LONG = 0x05,
+        CONST_DOUBLE = 0x06,
         CONST_CLASS = 0x07,
         CONST_STRING = 0x08,
         CONST_FIELD = 0x09,
         CONST_METHOD = 0x0a,
         CONST_NAME_AND_TYPE = 0x0c,
     } tag;
-    char* string;
-    uint16_t name_index;
-    uint16_t class_index;
-    uint16_t name_and_type_index;
-    uint16_t string_index;
-    uint16_t desc_index;
+    union {
+        char* utf8;
+        int32_t i;
+        int64_t l;
+        float f;
+        double d;
+        struct {
+            uint16_t name_index;
+            uint16_t desc_index;
+        };
+        struct {
+            uint16_t class_index;
+            uint16_t name_and_type_index;
+        };
+        uint16_t string_index;
+    };
 } Const_t;
 
 typedef struct _Class Class_t;
@@ -109,10 +123,11 @@ struct _Class {
     char const* source_file;
 };
 
-char const* resolve_constant(Const_t* constant_pool_list, size_t i);
+char const* resolve_utf8(Const_t* constant_pool_list, size_t i);
+char const* resolve_class(Const_t* constant_pool_list, size_t i);
 Field_t* resolve_fieldref(Const_t* constant_pool_list, size_t i);
 Method_t* resolve_methodref(Const_t* constant_pool_list, size_t i);
 
-Method_t* get_method(Class_t* c, char const* methodname);
+Method_t* get_method(Class_t* c, char const* methodname, char const* desc);
 
 #endif // CLASS_H

@@ -30,6 +30,7 @@ static inline size_t get_size_from_desc(char desc)
     }
 }
 
-void native_println(void* a, int32_t i);
+void native_println_I(void* a, int32_t i);
+void native_println_D(void* a, double d);
 
 #endif // LOADER_H

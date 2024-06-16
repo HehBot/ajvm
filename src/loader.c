@@ -49,32 +49,56 @@ static Const_t* load_constant_pool(FILE* cf, size_t nr)
         return NULL;
     Const_t* list = malloc(sizeof(list[0]) * nr);
     for (size_t i = 0; i < nr; ++i) {
-        Const_t c;
-        c.tag = read_big_endian_u1(cf);
-        switch (c.tag) {
+        Const_t* c = &list[i];
+        c->tag = read_big_endian_u1(cf);
+        switch (c->tag) {
         case CONST_UTF8: {
             size_t l = read_big_endian_u2(cf);
-            c.string = bytes(cf, l, 1);
+            c->utf8 = bytes(cf, l, 1);
+        } break;
+        case CONST_INT:
+            c->i = read_big_endian_u4(cf);
+            break;
+        case CONST_FLOAT: {
+            uint32_t i = read_big_endian_u4(cf);
+            c->f = *(float*)&i;
+            break;
+        } break;
+        case CONST_LONG: {
+            uint32_t i1 = read_big_endian_u4(cf);
+            uint32_t i2 = read_big_endian_u4(cf);
+            c->l = (((uint64_t)i1) << 32 | i2);
+            // skip entry in constant pool
+            ++i;
+            list[i].tag = 0;
+        } break;
+        case CONST_DOUBLE: {
+            uint32_t i1 = read_big_endian_u4(cf);
+            uint32_t i2 = read_big_endian_u4(cf);
+            uint64_t l = (((uint64_t)i1) << 32 | i2);
+            c->d = *(double*)&l;
+            // skip entry in constant pool
+            ++i;
+            list[i].tag = 0;
         } break;
         case CONST_CLASS:
-            c.name_index = read_big_endian_u2(cf);
+            c->name_index = read_big_endian_u2(cf);
             break;
         case CONST_STRING:
-            c.string_index = read_big_endian_u2(cf);
+            c->string_index = read_big_endian_u2(cf);
             break;
         case CONST_FIELD:
         case CONST_METHOD:
-            c.class_index = read_big_endian_u2(cf);
-            c.name_and_type_index = read_big_endian_u2(cf);
+            c->class_index = read_big_endian_u2(cf);
+            c->name_and_type_index = read_big_endian_u2(cf);
             break;
         case CONST_NAME_AND_TYPE:
-            c.name_index = read_big_endian_u2(cf);
-            c.desc_index = read_big_endian_u2(cf);
+            c->name_index = read_big_endian_u2(cf);
+            c->desc_index = read_big_endian_u2(cf);
             break;
         default:
-            errorf("unsupported constant pool tag: %d", c.tag);
+            errorf("unsupported constant pool tag: %d", c->tag);
         }
-        list[i] = c;
     }
     return list;
 }
@@ -85,7 +109,7 @@ static char const** load_interfaces(FILE* cf, size_t nr, Const_t* constant_pool_
         return NULL;
     char const** list = malloc(sizeof(list[0]) * nr);
     for (size_t i = 0; i < nr; ++i)
-        list[i] = resolve_constant(constant_pool_list, read_big_endian_u2(cf));
+        list[i] = resolve_utf8(constant_pool_list, read_big_endian_u2(cf));
     return list;
 }
 
@@ -106,7 +130,7 @@ static void load_field_attrs(FILE* cf, Field_t* f, Const_t* constant_pool_list)
 {
     size_t nr = read_big_endian_u2(cf);
     for (size_t i = 0; i < nr; ++i) {
-        enum AttrType attr_type = get_attr_type(resolve_constant(constant_pool_list, read_big_endian_u2(cf)));
+        enum AttrType attr_type = get_attr_type(resolve_utf8(constant_pool_list, read_big_endian_u2(cf)));
 
         size_t size = read_big_endian_u4(cf);
         void* attr_buf = bytes(cf, size, 0);
@@ -118,7 +142,7 @@ static void load_field_attrs(FILE* cf, Field_t* f, Const_t* constant_pool_list)
             };
             struct ClassFileAttrSourceFile* p = attr_buf;
 
-            f->source_file = resolve_constant(constant_pool_list, u2_from_big_endian(p->index));
+            f->source_file = resolve_utf8(constant_pool_list, u2_from_big_endian(p->index));
         } break;
         default:
             panicf("unknown attr for field 0x%x", attr_type);
@@ -135,9 +159,8 @@ static void load_fields(FILE* cf, Class_t* c)
     for (size_t i = 0; i < nr; ++i) {
         Field_t f;
         f.flags = read_big_endian_u2(cf);
-        size_t cp_entry = read_big_endian_u2(cf);
-        f.name = resolve_constant(c->constant_pool.list, cp_entry);
-        f.desc = resolve_constant(c->constant_pool.list, read_big_endian_u2(cf));
+        f.name = resolve_utf8(c->constant_pool.list, read_big_endian_u2(cf));
+        f.desc = resolve_utf8(c->constant_pool.list, read_big_endian_u2(cf));
         load_field_attrs(cf, &f, c->constant_pool.list);
 
         f.offset = off;
@@ -154,7 +177,7 @@ static void load_method_attrs(FILE* cf, Method_t* m, Const_t* constant_pool_list
 {
     size_t nr = read_big_endian_u2(cf);
     for (size_t i = 0; i < nr; ++i) {
-        enum AttrType attr_type = get_attr_type(resolve_constant(constant_pool_list, read_big_endian_u2(cf)));
+        enum AttrType attr_type = get_attr_type(resolve_utf8(constant_pool_list, read_big_endian_u2(cf)));
 
         size_t size = read_big_endian_u4(cf);
         void* attr_buf = bytes(cf, size, 0);
@@ -186,7 +209,7 @@ static void load_method_attrs(FILE* cf, Method_t* m, Const_t* constant_pool_list
             };
             struct ClassFileAttrSourceFile* p = attr_buf;
 
-            m->source_file = resolve_constant(constant_pool_list, u2_from_big_endian(p->index));
+            m->source_file = resolve_utf8(constant_pool_list, u2_from_big_endian(p->index));
         } break;
         default:
             panicf("unknown attr for method 0x%x", attr_type);
@@ -202,9 +225,8 @@ static void load_methods(FILE* cf, Class_t* c)
     for (size_t i = 0; i < nr; ++i) {
         Method_t m;
         m.flags = read_big_endian_u2(cf);
-        size_t cp_entry = read_big_endian_u2(cf);
-        m.name = resolve_constant(c->constant_pool.list, cp_entry);
-        m.desc = resolve_constant(c->constant_pool.list, read_big_endian_u2(cf));
+        m.name = resolve_utf8(c->constant_pool.list, read_big_endian_u2(cf));
+        m.desc = resolve_utf8(c->constant_pool.list, read_big_endian_u2(cf));
         load_method_attrs(cf, &m, c->constant_pool.list);
         methods[i] = m;
     }
@@ -284,7 +306,7 @@ void load_class_attrs(FILE* cf, Class_t* c)
 {
     size_t nr = read_big_endian_u2(cf);
     for (size_t i = 0; i < nr; ++i) {
-        enum AttrType attr_type = get_attr_type(resolve_constant(c->constant_pool.list, read_big_endian_u2(cf)));
+        enum AttrType attr_type = get_attr_type(resolve_utf8(c->constant_pool.list, read_big_endian_u2(cf)));
 
         size_t size = read_big_endian_u4(cf);
         void* attr_buf = bytes(cf, size, 0);
@@ -296,7 +318,7 @@ void load_class_attrs(FILE* cf, Class_t* c)
             };
             struct ClassFileAttrSourceFile* p = attr_buf;
 
-            c->source_file = resolve_constant(c->constant_pool.list, u2_from_big_endian(p->index));
+            c->source_file = resolve_utf8(c->constant_pool.list, u2_from_big_endian(p->index));
         } break;
         default:
             panicf("unknown attr for class 0x%x", attr_type);
@@ -349,8 +371,8 @@ Class_t* load_class(char const* classname)
     c->constant_pool.list = load_constant_pool(cf, c->constant_pool.size);
 
     c->flags = read_big_endian_u2(cf);
-    c->name = resolve_constant(c->constant_pool.list, read_big_endian_u2(cf));
-    c->super = load_class(resolve_constant(c->constant_pool.list, read_big_endian_u2(cf)));
+    c->name = resolve_class(c->constant_pool.list, read_big_endian_u2(cf));
+    c->super = load_class(resolve_class(c->constant_pool.list, read_big_endian_u2(cf)));
 
     c->interfaces.size = read_big_endian_u2(cf);
     c->interfaces.list = load_interfaces(cf, c->interfaces.size, c->constant_pool.list);
@@ -390,7 +412,7 @@ static void free_class(Class_t const* c)
 
     for (size_t i = 0; i < c->constant_pool.size; ++i)
         if (c->constant_pool.list[i].tag == CONST_UTF8)
-            free(c->constant_pool.list[i].string);
+            free(c->constant_pool.list[i].utf8);
     free(c->constant_pool.list);
 }
 
@@ -441,12 +463,19 @@ static void init_java_io_PrintStream(Class_t* c)
             .name = "println",
             .desc = "(I)V",
             .vtable_offset = 0,
+        },
+        {
+            .flags = ACC_NATIVE,
+            .name = "println",
+            .desc = "(D)V",
+            .vtable_offset = 1,
         }
     };
     methods[0].c = c;
     methods[1].c = c;
+    methods[2].c = c;
 
-    static Method_t* vtable[] = { &methods[1], NULL };
+    static Method_t* vtable[] = { &methods[1], &methods[2], NULL };
 
     Class_t java_io_PrintStream = {
         .constant_pool = { 0, NULL },
@@ -464,10 +493,15 @@ static void init_java_io_PrintStream(Class_t* c)
     };
     *c = java_io_PrintStream;
 }
-void native_println(void* a, int32_t i)
+void native_println_I(void* a, int32_t i)
 {
     FILE* f = ((struct java_io_PrintStream_object*)a)->f;
     fprintf(f, "%d\n", i);
+}
+void native_println_D(void* a, double d)
+{
+    FILE* f = ((struct java_io_PrintStream_object*)a)->f;
+    fprintf(f, "%lf\n", d);
 }
 static void init_java_lang_System(Class_t* c)
 {

@@ -20,30 +20,35 @@ typedef struct {
     size_t sp; // points to top of the stack (-1 for empty stack)
     Value_t* stack;
 } Frame_t;
+
+void print_value(Value_t v)
+{
+    switch (v.type) {
+    case I:
+        debugfc(BOLD BLUE, "I:%d ", v.i);
+        break;
+    case L:
+        debugfc(BOLD BLUE, "L:%ld ", v.l);
+        break;
+    case F:
+        debugfc(BOLD BLUE, "F:%f ", v.f);
+        break;
+    case D:
+        debugfc(BOLD BLUE, "D:%lf ", v.d);
+        break;
+    case A:
+        debugfc(BOLD BLUE, "A:%p ", v.a);
+        break;
+    case ARR:
+        panicf("unimplemented");
+    }
+}
 void print_stack(Value_t* stack, size_t sp)
 {
     debugfc(BOLD BLUE, "[ ");
     if (sp + 1 != 0)
         for (size_t i = 0; i <= sp; ++i)
-            switch (stack[i].type) {
-            case I:
-                debugfc(BOLD BLUE, "I:%d ", stack[i].i);
-                break;
-            case L:
-                debugfc(BOLD BLUE, "L:%ld ", stack[i].l);
-                break;
-            case F:
-                debugfc(BOLD BLUE, "F:%f ", stack[i].f);
-                break;
-            case D:
-                debugfc(BOLD BLUE, "D:%lf ", stack[i].d);
-                break;
-            case A:
-                debugfc(BOLD BLUE, "A:%p ", stack[i].a);
-                break;
-            case ARR:
-                panicf("unimplemented");
-            }
+            print_value(stack[i]);
     debugfc(BOLD BLUE, "]");
 }
 
@@ -77,12 +82,15 @@ Value_t exec(Frame_t* f);
 Value_t call_method(Method_t* m, Value_t const* args, size_t nr_args)
 {
     Value_t ret;
-    debugfc(BOLD YELLOW, "Entering function %s.%s (max stack %lu)\n", m->c->name, m->name, m->max_stack);
+    debugfc(BOLD YELLOW, "Entering function %s.%s\n", m->c->name, m->name);
 
     if (m->flags & ACC_NATIVE) {
-        if (!strcmp(m->c->name, "java/io/PrintStream") && !strcmp(m->name, "println"))
-            native_println(args[0].a, args[1].i);
-        else if (!strcmp(m->c->name, "java/lang/Object") && !strcmp(m->name, "<init>")) {
+        if (!strcmp(m->c->name, "java/io/PrintStream") && !strcmp(m->name, "println")) {
+            if (!strcmp(m->desc, "(I)V"))
+                native_println_I(args[0].a, args[1].i);
+            else if (!strcmp(m->desc, "(D)V"))
+                native_println_D(args[0].a, args[1].d);
+        } else if (!strcmp(m->c->name, "java/lang/Object") && !strcmp(m->name, "<init>")) {
         }
     } else {
         Value_t* locals = malloc(sizeof(Value_t) * m->max_locals);
@@ -204,6 +212,22 @@ static inline void set_value(void* a, Value_t v)
     }
 }
 
+Value_t const_to_value(Const_t c)
+{
+    switch (c.tag) {
+    case CONST_INT:
+        return makeI(c.i);
+    case CONST_FLOAT:
+        return makeF(c.f);
+    case CONST_LONG:
+        return makeL(c.l);
+    case CONST_DOUBLE:
+        return makeD(c.d);
+    default:
+        panicf("unimplemented %d", c.tag);
+    }
+}
+
 Value_t exec(Frame_t* f)
 {
     Const_t* constant_pool_list = f->class->constant_pool.list;
@@ -261,6 +285,19 @@ Value_t exec(Frame_t* f)
             stack[++sp] = makeI((int16_t)u2_from_big_endian(*(uint16_t*)&code[ip]));
             ip += 2;
             break;
+        case LDC: {
+            size_t index = code[ip];
+            Const_t c = constant_pool_list[index - 1];
+            stack[++sp] = const_to_value(c);
+            ip++;
+        } break;
+        case LDC_W:
+        case LDC2_W: {
+            size_t index = u2_from_big_endian(*(uint16_t*)&code[ip]);
+            Const_t c = constant_pool_list[index - 1];
+            stack[++sp] = const_to_value(c);
+            ip += 2;
+        } break;
         case ILOAD:
         case LLOAD:
         case FLOAD:
@@ -608,7 +645,7 @@ Value_t exec(Frame_t* f)
         case NEW: {
             size_t s = (uint16_t)u2_from_big_endian(*(uint16_t*)&code[ip]);
             ip += 2;
-            Class_t* c = load_class(resolve_constant(constant_pool_list, s));
+            Class_t* c = load_class(resolve_class(constant_pool_list, s));
             Value_t v = makeA(malloc(c->size));
             *(Method_t***)v.a = c->vtable;
             stack[++sp] = v;
@@ -624,7 +661,7 @@ Value_t exec(Frame_t* f)
 
             Value_t* args = &stack[sp - info.nr_args + 1];
 
-            // vtabe lookup
+            // vtable lookup
             m = (*(Method_t***)args[0].a)[m->vtable_offset];
 
             Value_t ret = call_method(m, args, info.nr_args);
@@ -677,7 +714,7 @@ int main(int argc, char** argv)
     load_init();
 
     Class_t* c = load_class(cmd_args.main_class);
-    Method_t* main_method = get_method(c, "main");
+    Method_t* main_method = get_method(c, "main", "()V");
 
     call_method(main_method, NULL, 0);
 

@@ -14,5 +14,7 @@ public class Main {
         Add c = b;
         System.out.println(b.call(13));
         System.out.println(c.call(13));
+
+        System.out.println(3.1415);
     }
 }

@@ -36,10 +36,14 @@ case name:                      \
     XX(LCONST_1, )            \
     XX(FCONST_0, )            \
     XX(FCONST_1, )            \
+    XX(FCONST_2, )            \
     XX(DCONST_0, )            \
     XX(DCONST_1, )            \
     XX(BIPUSH, = 0x10)        \
     XX(SIPUSH, = 0x11)        \
+    XX(LDC, = 0x12)           \
+    XX(LDC_W, = 0x13)         \
+    XX(LDC2_W, = 0x14)        \
     XX(ILOAD, = 0x15)         \
     XX(LLOAD, )               \
     XX(FLOAD, )               \
